@@ -1,0 +1,27 @@
+{
+  "comment": "설정 파일 예제 - .env 파일 사용을 권장합니다",
+  "exchange": "binance",
+  "symbol": "BTC/USDT",
+  "strategy": "market_making",
+
+  "market_making": {
+    "spread_percent": 0.1,
+    "order_amount": 0.001,
+    "max_position": 0.01,
+    "order_refresh_seconds": 10,
+    "min_profit_percent": 0.05
+  },
+
+  "grid_trading": {
+    "grid_count": 10,
+    "grid_range_percent": 2.0,
+    "order_amount": 0.0005,
+    "rebalance_interval": 60
+  },
+
+  "risk_management": {
+    "max_loss_percent": 5.0,
+    "max_position_imbalance": 0.005,
+    "daily_trade_limit": 10000
+  }
+}
