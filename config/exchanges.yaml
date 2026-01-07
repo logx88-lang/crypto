@@ -1,0 +1,48 @@
+exchanges:
+  grvt:
+    enabled: true
+    name: GRVT
+    testnet: true
+    symbols:
+      - BTC-USD-PERP
+      - ETH-USD-PERP
+    config:
+      leverage: 5
+      spread_bps: 10
+      order_size: 0.001
+
+  lighter:
+    enabled: true
+    name: Lighter
+    testnet: true
+    symbols:
+      - BTC-USDT
+      - ETH-USDT
+    config:
+      leverage: 5
+      spread_bps: 10
+      order_size: 0.001
+
+  variational:
+    enabled: true
+    name: Variational
+    testnet: true
+    symbols:
+      - BTCUSD
+      - ETHUSD
+    config:
+      leverage: 5
+      spread_bps: 10
+      order_size: 0.001
+
+  pacifica:
+    enabled: true
+    name: Pacifica
+    testnet: true
+    symbols:
+      - BTC_USD_PERP
+      - ETH_USD_PERP
+    config:
+      leverage: 5
+      spread_bps: 10
+      order_size: 0.001

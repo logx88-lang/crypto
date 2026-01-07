@@ -1,0 +1,25 @@
+# Core dependencies
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pyyaml>=6.0
+
+# Async support
+aiohttp>=3.9.0
+asyncio>=3.4.3
+
+# Logging
+loguru>=0.7.0
+
+# Data handling
+pandas>=2.0.0
+numpy>=1.24.0
+
+# WebSocket support
+websockets>=12.0
+
+# Multi-perp-dex integration (if available on PyPI, otherwise install from git)
+# multi-perp-dex
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

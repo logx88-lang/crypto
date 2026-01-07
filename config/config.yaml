@@ -1,0 +1,28 @@
+bot:
+  mode: TEST  # TEST or LIVE
+  log_level: INFO
+  restart_interval: 3600  # seconds
+
+trading:
+  # Default trading parameters
+  default_leverage: 5
+  max_position_size: 0.001  # in BTC
+  spread_bps: 10  # basis points
+  drift_threshold: 5  # basis points
+  order_refresh_interval: 60  # seconds
+
+  # Order sizes
+  min_order_size: 0.0001
+  max_order_size: 0.01
+  order_levels: 3  # number of orders on each side
+
+risk_management:
+  auto_close_position: false
+  max_daily_loss: 100  # USD
+  stop_loss_percent: 5
+  max_leverage: 10
+
+monitoring:
+  health_check_interval: 300  # seconds
+  metrics_enabled: true
+  alert_on_error: true
