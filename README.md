@@ -170,34 +170,37 @@ class NewExchange(BaseExchange):
 2. `BaseStrategy` 상속받아 구현
 3. 봇에서 전략 인스턴스 생성
 
-## 필요한 자료
+## 거래소 구현 상태
 
-각 거래소의 실제 API 구현을 위해 다음 자료가 필요합니다:
+### ✅ GRVT (완전 구현)
+- **SDK**: grvt-pysdk (CCXT Pro 인터페이스)
+- **문서**: [api-docs.grvt.io](https://api-docs.grvt.io/)
+- **인증**: API Key + Private Key + Trading Account ID
+- **기능**: 주문, 포지션, 잔고, 티커 조회 모두 지원
+- **설치**: `pip install grvt-pysdk`
 
-### GRVT
-- [ ] API 문서 URL
-- [ ] WebSocket 엔드포인트
-- [ ] 인증 방식 (API Key / Private Key)
-- [ ] 주문 생성/취소 API 형식
-- [ ] 포지션 조회 API 형식
+### ✅ Lighter (완전 구현)
+- **SDK**: lighter-v1-python
+- **문서**: [apidocs.lighter.xyz](https://apidocs.lighter.xyz)
+- **인증**: API Key + Private Key + Web3 Provider
+- **기능**: 블록체인 기반 주문, 오더북 조회 지원
+- **설치**: `pip install lighter-v1-python`
+- **참고**: Limit orders만 지원, Web3 provider URL 필요
 
-### Lighter
-- [ ] API 문서 URL
-- [ ] WebSocket 엔드포인트
-- [ ] 인증 방식
-- [ ] API 스펙
+### ⚠️ Variational (REST API 구현, API Pre-launch)
+- **SDK**: 없음 (REST API 직접 구현)
+- **문서**: [docs.variational.io/technical-documentation/api](https://docs.variational.io/technical-documentation/api)
+- **인증**: API Key + HMAC 서명
+- **상태**: **API key generation 아직 unavailable**
+- **기능**: REST API 프레임워크 구현 완료, 실제 테스트 대기 중
 
-### Variational
-- [ ] API 문서 URL
-- [ ] WebSocket 엔드포인트
-- [ ] 인증 방식
-- [ ] API 스펙
-
-### Pacifica
-- [ ] API 문서 URL
-- [ ] WebSocket 엔드포인트
-- [ ] 인증 방식
-- [ ] API 스펙
+### ✅ Pacifica (완전 구현)
+- **SDK**: 없음 (REST API 직접 구현)
+- **문서**: [docs.pacifica.fi/api-documentation/api](https://docs.pacifica.fi/api-documentation/api)
+- **인증**: API Key + HMAC 서명
+- **플랫폼**: Solana 기반
+- **기능**: 주문, 포지션, 잔고, 티커 조회 모두 지원
+- **성능**: Sub-10ms latency
 
 ## 현재 구현 상태
 
@@ -205,18 +208,23 @@ class NewExchange(BaseExchange):
 - [x] 프로젝트 구조 설계
 - [x] 설정 관리 시스템
 - [x] 거래소 추상 인터페이스
-- [x] 4개 거래소 어댑터 스켈레톤
+- [x] 4개 거래소 어댑터 실제 구현
+  - [x] **GRVT**: Python SDK 사용 (grvt-pysdk with CCXT Pro)
+  - [x] **Lighter**: Python SDK 사용 (lighter-v1-python)
+  - [x] **Variational**: REST API 구현 (API pre-launch 단계)
+  - [x] **Pacifica**: REST API 구현 (완전 기능)
 - [x] 마켓메이킹 전략
 - [x] 메인 봇 로직
 - [x] 로깅 및 모니터링
+- [x] 인증 및 서명 메커니즘
 
 ### 🚧 진행 중 / TODO
-- [ ] 각 거래소 API 실제 구현 (현재는 mock)
 - [ ] WebSocket 실시간 데이터 연동
 - [ ] 포지션 리스크 관리 고도화
 - [ ] 백테스팅 시스템
 - [ ] 웹 대시보드
 - [ ] 알림 시스템 (Telegram, Discord 등)
+- [ ] 실전 거래 테스트 및 최적화
 
 ## 리스크 관리
 

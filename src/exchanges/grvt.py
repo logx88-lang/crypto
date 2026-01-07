@@ -1,9 +1,15 @@
-"""GRVT exchange adapter."""
+"""GRVT exchange adapter using official Python SDK."""
 
-import aiohttp
+import os
 from decimal import Decimal
 from typing import Dict, List, Optional, Any
 from loguru import logger
+
+try:
+    from grvt import GrvtCcxtPro
+except ImportError:
+    logger.warning("grvt-pysdk not installed. Install with: pip install grvt-pysdk")
+    GrvtCcxtPro = None
 
 from .base import (
     BaseExchange,
@@ -18,51 +24,48 @@ from .base import (
 
 
 class GRVTExchange(BaseExchange):
-    """GRVT exchange implementation."""
+    """GRVT exchange implementation using official Python SDK."""
 
     def __init__(self, config: Dict[str, Any], credentials: Dict[str, str]):
         """Initialize GRVT adapter."""
         super().__init__(config, credentials)
-        self.base_url = "https://api.grvt.io" if not self.testnet else "https://testnet.grvt.io"
-        self.session: Optional[aiohttp.ClientSession] = None
+
+        if GrvtCcxtPro is None:
+            raise RuntimeError("grvt-pysdk is required. Install with: pip install grvt-pysdk")
+
+        # Set environment variables for SDK
+        os.environ['GRVT_PRIVATE_KEY'] = credentials.get('private_key', '')
+        os.environ['GRVT_API_KEY'] = credentials.get('api_key', '')
+        os.environ['GRVT_TRADING_ACCOUNT_ID'] = credentials.get('trading_account_id', '')
+        os.environ['GRVT_ENV'] = 'testnet' if self.testnet else 'prod'
+        os.environ['GRVT_END_POINT_VERSION'] = 'v1'
+        os.environ['GRVT_WS_STREAM_VERSION'] = 'v1'
+
+        self.client: Optional[GrvtCcxtPro] = None
 
     async def connect(self):
-        """Connect to GRVT."""
-        logger.info(f"Connecting to GRVT ({self.base_url})...")
-        self.session = aiohttp.ClientSession(
-            headers={
-                "Content-Type": "application/json",
-                "X-API-KEY": self.credentials.get("api_key", ""),
-            }
-        )
-        self._connected = True
-        logger.info("Connected to GRVT")
+        """Connect to GRVT using SDK."""
+        logger.info(f"Connecting to GRVT ({'testnet' if self.testnet else 'mainnet'})...")
+
+        try:
+            # Initialize CCXT Pro client (async)
+            self.client = GrvtCcxtPro()
+
+            # Test connection by fetching markets
+            markets = await self.client.load_markets()
+            logger.info(f"Connected to GRVT. Available markets: {len(markets)}")
+
+            self._connected = True
+        except Exception as e:
+            logger.error(f"Failed to connect to GRVT: {e}")
+            raise
 
     async def disconnect(self):
         """Disconnect from GRVT."""
-        if self.session:
-            await self.session.close()
+        if self.client:
+            await self.client.close()
         self._connected = False
         logger.info("Disconnected from GRVT")
-
-    async def _request(self, method: str, endpoint: str, **kwargs) -> Dict:
-        """Make API request.
-
-        Args:
-            method: HTTP method
-            endpoint: API endpoint
-            **kwargs: Additional request parameters
-
-        Returns:
-            Response data
-        """
-        if not self.session:
-            raise RuntimeError("Not connected to exchange")
-
-        url = f"{self.base_url}{endpoint}"
-        async with self.session.request(method, url, **kwargs) as response:
-            response.raise_for_status()
-            return await response.json()
 
     async def create_order(
         self,
@@ -73,96 +76,247 @@ class GRVTExchange(BaseExchange):
         price: Optional[Decimal] = None,
         **kwargs
     ) -> Order:
-        """Create order on GRVT."""
+        """Create order on GRVT using SDK."""
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
         logger.info(f"Creating {side.value} {order_type.value} order: {size} {symbol} @ {price}")
 
-        # TODO: Implement actual GRVT API call
-        # This is a placeholder implementation
-        # You'll need to consult GRVT API documentation for exact format
-
-        payload = {
-            "symbol": self.normalize_symbol(symbol),
-            "side": side.value,
-            "type": order_type.value,
-            "quantity": str(size),
-        }
-
-        if price:
-            payload["price"] = str(price)
-
         try:
-            # response = await self._request("POST", "/v1/order", json=payload)
-            # For now, return mock order
-            return Order(
-                id="mock_order_id",
-                symbol=symbol,
-                side=side,
-                type=order_type,
-                price=price or Decimal("0"),
-                size=size,
-                status=OrderStatus.OPEN,
-            )
+            normalized_symbol = self.normalize_symbol(symbol)
+
+            # CCXT parameters
+            ccxt_side = 'buy' if side == OrderSide.BUY else 'sell'
+            ccxt_type = 'limit' if order_type == OrderType.LIMIT else 'market'
+
+            # Create order using CCXT interface
+            if order_type == OrderType.LIMIT:
+                order_result = await self.client.create_order(
+                    symbol=normalized_symbol,
+                    type=ccxt_type,
+                    side=ccxt_side,
+                    amount=float(size),
+                    price=float(price) if price else None,
+                )
+            else:
+                order_result = await self.client.create_order(
+                    symbol=normalized_symbol,
+                    type=ccxt_type,
+                    side=ccxt_side,
+                    amount=float(size),
+                )
+
+            # Convert to our Order format
+            return self._parse_order(order_result)
+
         except Exception as e:
-            logger.error(f"Failed to create order: {e}")
+            logger.error(f"Failed to create order on GRVT: {e}")
             raise
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """Cancel order on GRVT."""
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
         logger.info(f"Cancelling order {order_id} for {symbol}")
-        # TODO: Implement actual API call
-        return True
+
+        try:
+            normalized_symbol = self.normalize_symbol(symbol)
+            await self.client.cancel_order(order_id, normalized_symbol)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cancel order: {e}")
+            return False
 
     async def cancel_all_orders(self, symbol: Optional[str] = None) -> int:
         """Cancel all orders on GRVT."""
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
         logger.info(f"Cancelling all orders for {symbol or 'all symbols'}")
-        # TODO: Implement actual API call
-        return 0
+
+        try:
+            if symbol:
+                normalized_symbol = self.normalize_symbol(symbol)
+                orders = await self.client.fetch_open_orders(normalized_symbol)
+            else:
+                orders = await self.client.fetch_open_orders()
+
+            count = 0
+            for order in orders:
+                try:
+                    await self.client.cancel_order(order['id'], order['symbol'])
+                    count += 1
+                except Exception as e:
+                    logger.error(f"Failed to cancel order {order['id']}: {e}")
+
+            return count
+        except Exception as e:
+            logger.error(f"Failed to cancel all orders: {e}")
+            return 0
 
     async def get_open_orders(self, symbol: Optional[str] = None) -> List[Order]:
         """Get open orders from GRVT."""
-        # TODO: Implement actual API call
-        return []
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
+        try:
+            if symbol:
+                normalized_symbol = self.normalize_symbol(symbol)
+                orders = await self.client.fetch_open_orders(normalized_symbol)
+            else:
+                orders = await self.client.fetch_open_orders()
+
+            return [self._parse_order(order) for order in orders]
+        except Exception as e:
+            logger.error(f"Failed to get open orders: {e}")
+            return []
 
     async def get_position(self, symbol: str) -> Optional[Position]:
         """Get position from GRVT."""
-        # TODO: Implement actual API call
-        return None
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
+        try:
+            normalized_symbol = self.normalize_symbol(symbol)
+            positions = await self.client.fetch_positions([normalized_symbol])
+
+            if not positions:
+                return None
+
+            pos = positions[0]
+
+            # Parse position data
+            return Position(
+                symbol=symbol,
+                size=Decimal(str(pos.get('contracts', 0))),
+                entry_price=Decimal(str(pos.get('entryPrice', 0))),
+                mark_price=Decimal(str(pos.get('markPrice', 0))),
+                unrealized_pnl=Decimal(str(pos.get('unrealizedPnl', 0))),
+                leverage=int(pos.get('leverage', 1)),
+                side='long' if float(pos.get('contracts', 0)) > 0 else 'short',
+                raw_data=pos,
+            )
+        except Exception as e:
+            logger.error(f"Failed to get position: {e}")
+            return None
 
     async def close_position(self, symbol: str) -> bool:
         """Close position on GRVT."""
         logger.info(f"Closing position for {symbol}")
-        # TODO: Implement actual API call
-        return True
+
+        try:
+            position = await self.get_position(symbol)
+            if not position or position.size == Decimal("0"):
+                logger.info("No position to close")
+                return True
+
+            # Create opposite order to close position
+            close_side = OrderSide.SELL if position.side == 'long' else OrderSide.BUY
+            await self.create_order(
+                symbol=symbol,
+                side=close_side,
+                order_type=OrderType.MARKET,
+                size=abs(position.size),
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to close position: {e}")
+            return False
 
     async def get_balance(self) -> Balance:
         """Get balance from GRVT."""
-        # TODO: Implement actual API call
-        return Balance(
-            total=Decimal("10000"),
-            available=Decimal("10000"),
-            used=Decimal("0"),
-        )
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
+        try:
+            balance = await self.client.fetch_balance()
+
+            # GRVT uses USD as collateral
+            usd_balance = balance.get('USD', {})
+
+            return Balance(
+                total=Decimal(str(usd_balance.get('total', 0))),
+                available=Decimal(str(usd_balance.get('free', 0))),
+                used=Decimal(str(usd_balance.get('used', 0))),
+                currency='USD',
+                raw_data=balance,
+            )
+        except Exception as e:
+            logger.error(f"Failed to get balance: {e}")
+            return Balance(
+                total=Decimal("0"),
+                available=Decimal("0"),
+                used=Decimal("0"),
+            )
 
     async def get_ticker(self, symbol: str) -> Ticker:
         """Get ticker from GRVT."""
-        # TODO: Implement actual API call
-        import time
-        return Ticker(
-            symbol=symbol,
-            bid=Decimal("50000"),
-            ask=Decimal("50001"),
-            last=Decimal("50000.5"),
-            timestamp=int(time.time() * 1000),
-        )
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
+        try:
+            normalized_symbol = self.normalize_symbol(symbol)
+            ticker = await self.client.fetch_ticker(normalized_symbol)
+
+            return Ticker(
+                symbol=symbol,
+                bid=Decimal(str(ticker.get('bid', 0))),
+                ask=Decimal(str(ticker.get('ask', 0))),
+                last=Decimal(str(ticker.get('last', 0))),
+                timestamp=int(ticker.get('timestamp', 0)),
+                raw_data=ticker,
+            )
+        except Exception as e:
+            logger.error(f"Failed to get ticker: {e}")
+            raise
 
     async def set_leverage(self, symbol: str, leverage: int) -> bool:
         """Set leverage on GRVT."""
         logger.info(f"Setting leverage to {leverage}x for {symbol}")
-        # TODO: Implement actual API call
-        return True
+
+        try:
+            if not self.client:
+                raise RuntimeError("Not connected to exchange")
+
+            normalized_symbol = self.normalize_symbol(symbol)
+            await self.client.set_leverage(leverage, normalized_symbol)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set leverage: {e}")
+            return False
 
     def normalize_symbol(self, symbol: str) -> str:
-        """Normalize symbol to GRVT format (e.g., BTC -> BTC-USD-PERP)."""
-        if "-" in symbol:
+        """Normalize symbol to GRVT format (e.g., BTC -> BTC/USD:USD)."""
+        if '/' in symbol or ':' in symbol:
             return symbol
-        return f"{symbol}-USD-PERP"
+
+        # GRVT uses format: BASE/QUOTE:SETTLE
+        # For perpetuals: BTC/USD:USD
+        return f"{symbol}/USD:USD"
+
+    def _parse_order(self, order_data: Dict) -> Order:
+        """Parse CCXT order to our Order format."""
+        return Order(
+            id=order_data['id'],
+            symbol=order_data['symbol'],
+            side=OrderSide.BUY if order_data['side'] == 'buy' else OrderSide.SELL,
+            type=OrderType.LIMIT if order_data['type'] == 'limit' else OrderType.MARKET,
+            price=Decimal(str(order_data.get('price', 0))),
+            size=Decimal(str(order_data.get('amount', 0))),
+            status=self._parse_order_status(order_data.get('status', 'unknown')),
+            filled_size=Decimal(str(order_data.get('filled', 0))),
+            timestamp=order_data.get('timestamp'),
+            raw_data=order_data,
+        )
+
+    def _parse_order_status(self, status: str) -> OrderStatus:
+        """Parse CCXT order status to our OrderStatus enum."""
+        status_map = {
+            'open': OrderStatus.OPEN,
+            'closed': OrderStatus.FILLED,
+            'canceled': OrderStatus.CANCELLED,
+            'cancelled': OrderStatus.CANCELLED,
+            'rejected': OrderStatus.REJECTED,
+        }
+        return status_map.get(status.lower(), OrderStatus.OPEN)

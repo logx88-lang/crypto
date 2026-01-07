@@ -17,8 +17,16 @@ numpy>=1.24.0
 # WebSocket support
 websockets>=12.0
 
-# Multi-perp-dex integration (if available on PyPI, otherwise install from git)
-# multi-perp-dex
+# Exchange SDKs
+grvt-pysdk>=0.1.0
+lighter-v1-python>=1.0.0
+
+# Web3 for blockchain interactions
+web3>=6.0.0
+
+# HTTP requests with retry
+requests>=2.31.0
+tenacity>=8.2.0
 
 # Testing
 pytest>=7.4.0
