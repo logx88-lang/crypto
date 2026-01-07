@@ -45,20 +45,34 @@ class MarketMakingStrategy(BaseStrategy):
         # Cancel any existing orders
         await self.exchange.cancel_all_orders(self.symbol)
 
+        # Subscribe to WebSocket ticker updates
+        try:
+            await self.exchange.subscribe_ticker(self.symbol)
+            logger.info(f"Subscribed to WebSocket ticker for {self.symbol}")
+        except Exception as e:
+            logger.warning(f"Failed to subscribe to WebSocket ticker: {e}. Will use REST API polling.")
+
         logger.info(f"Market making initialized with {self.spread_bps} bps spread")
 
     async def run_cycle(self):
         """Run one cycle of market making."""
         try:
-            # Get current market price
-            ticker = await self.exchange.get_ticker(self.symbol)
-            mid_price = (ticker.bid + ticker.ask) / Decimal("2")
+            # Try to get ticker from WebSocket cache first
+            ticker = self.exchange.get_latest_ticker(self.symbol)
 
-            logger.debug(f"{self.symbol} mid price: {mid_price}")
+            # Fallback to REST API if WebSocket data not available
+            if ticker is None:
+                logger.debug(f"WebSocket data not available, using REST API for {self.symbol}")
+                ticker = await self.exchange.get_ticker(self.symbol)
+            else:
+                logger.debug(f"Using WebSocket data for {self.symbol}")
+
+            mid_price = (ticker.bid + ticker.ask) / Decimal("2")
+            logger.debug(f"{self.symbol} mid price: {mid_price} (bid: {ticker.bid}, ask: {ticker.ask})")
 
             # Check if we need to rebalance
             if self._should_rebalance(mid_price):
-                logger.info(f"Price drifted, rebalancing orders...")
+                logger.info(f"Price drifted by {self._calc_drift_bps(mid_price):.2f} bps, rebalancing orders...")
                 await self._cancel_all_orders()
                 await self._place_orders(mid_price)
                 self.last_mid_price = mid_price
@@ -72,6 +86,14 @@ class MarketMakingStrategy(BaseStrategy):
     async def cleanup(self):
         """Cleanup strategy."""
         logger.info("Cleaning up market making strategy...")
+
+        # Unsubscribe from WebSocket ticker
+        try:
+            await self.exchange.unsubscribe_ticker(self.symbol)
+            logger.info(f"Unsubscribed from WebSocket ticker for {self.symbol}")
+        except Exception as e:
+            logger.warning(f"Failed to unsubscribe from WebSocket ticker: {e}")
+
         await self._cancel_all_orders()
 
         # Optionally close position
@@ -93,12 +115,26 @@ class MarketMakingStrategy(BaseStrategy):
         if self.last_mid_price is None:
             return True
 
+        drift_bps = self._calc_drift_bps(current_price)
+        return drift_bps >= Decimal(str(self.drift_threshold))
+
+    def _calc_drift_bps(self, current_price: Decimal) -> Decimal:
+        """Calculate price drift in basis points.
+
+        Args:
+            current_price: Current mid price
+
+        Returns:
+            Price drift in basis points
+        """
+        if self.last_mid_price is None:
+            return Decimal("0")
+
         # Calculate price drift in basis points
         drift_bps = abs(
             (current_price - self.last_mid_price) / self.last_mid_price * Decimal("10000")
         )
-
-        return drift_bps >= Decimal(str(self.drift_threshold))
+        return drift_bps
 
     async def _place_orders(self, mid_price: Decimal):
         """Place buy and sell orders around mid price.

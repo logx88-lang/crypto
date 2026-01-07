@@ -1,8 +1,9 @@
 """GRVT exchange adapter using official Python SDK."""
 
 import os
+import asyncio
 from decimal import Decimal
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 from loguru import logger
 
 try:
@@ -62,9 +63,16 @@ class GRVTExchange(BaseExchange):
 
     async def disconnect(self):
         """Disconnect from GRVT."""
+        # Cancel WebSocket tasks
+        for task in self._ws_tasks:
+            task.cancel()
+        self._ws_tasks.clear()
+
         if self.client:
             await self.client.close()
+
         self._connected = False
+        self._ws_connected = False
         logger.info("Disconnected from GRVT")
 
     async def create_order(
@@ -320,3 +328,72 @@ class GRVTExchange(BaseExchange):
             'rejected': OrderStatus.REJECTED,
         }
         return status_map.get(status.lower(), OrderStatus.OPEN)
+
+    # WebSocket Methods
+
+    async def subscribe_ticker(self, symbol: str, callback: Optional[Callable[[Ticker], None]] = None):
+        """Subscribe to ticker updates via WebSocket using CCXT Pro.
+
+        Args:
+            symbol: Trading pair symbol
+            callback: Optional callback function to receive ticker updates
+        """
+        if not self.client:
+            raise RuntimeError("Not connected to exchange")
+
+        normalized_symbol = self.normalize_symbol(symbol)
+
+        # Register callback
+        if callback:
+            if symbol not in self._ticker_callbacks:
+                self._ticker_callbacks[symbol] = []
+            self._ticker_callbacks[symbol].append(callback)
+
+        # Start WebSocket task
+        task = asyncio.create_task(self._watch_ticker(symbol, normalized_symbol))
+        self._ws_tasks.append(task)
+        self._ws_connected = True
+
+        logger.info(f"Subscribed to ticker updates for {symbol} via WebSocket")
+
+    async def _watch_ticker(self, symbol: str, normalized_symbol: str):
+        """Watch ticker updates continuously.
+
+        Args:
+            symbol: Original symbol
+            normalized_symbol: Exchange-normalized symbol
+        """
+        try:
+            while self._connected:
+                # CCXT Pro watch_ticker method
+                ticker_data = await self.client.watch_ticker(normalized_symbol)
+
+                ticker = Ticker(
+                    symbol=symbol,
+                    bid=Decimal(str(ticker_data.get('bid', 0))),
+                    ask=Decimal(str(ticker_data.get('ask', 0))),
+                    last=Decimal(str(ticker_data.get('last', 0))),
+                    timestamp=int(ticker_data.get('timestamp', 0)),
+                    raw_data=ticker_data,
+                )
+
+                # Update cache and notify callbacks
+                self._update_ticker_cache(symbol, ticker)
+
+        except asyncio.CancelledError:
+            logger.info(f"Ticker watch cancelled for {symbol}")
+        except Exception as e:
+            logger.error(f"Error watching ticker for {symbol}: {e}")
+            self._ws_connected = False
+
+    async def unsubscribe_ticker(self, symbol: str):
+        """Unsubscribe from ticker updates.
+
+        Args:
+            symbol: Trading pair symbol
+        """
+        # Remove callbacks
+        if symbol in self._ticker_callbacks:
+            del self._ticker_callbacks[symbol]
+
+        logger.info(f"Unsubscribed from ticker updates for {symbol}")

@@ -1,10 +1,11 @@
 """Base abstract class for exchange adapters."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
 from enum import Enum
 from decimal import Decimal
+import asyncio
 
 
 class OrderSide(Enum):
@@ -92,6 +93,12 @@ class BaseExchange(ABC):
         self.name = config.get("name", "Unknown")
         self.testnet = config.get("testnet", True)
         self._connected = False
+
+        # WebSocket state
+        self._ws_connected = False
+        self._ticker_cache: Dict[str, Ticker] = {}
+        self._ticker_callbacks: Dict[str, List[Callable]] = {}
+        self._ws_tasks: List[asyncio.Task] = []
 
     @abstractmethod
     async def connect(self):
@@ -239,3 +246,57 @@ class BaseExchange(ABC):
     def is_connected(self) -> bool:
         """Check if connected to exchange."""
         return self._connected
+
+    # WebSocket Methods (optional to implement)
+
+    async def subscribe_ticker(self, symbol: str, callback: Optional[Callable[[Ticker], None]] = None):
+        """Subscribe to ticker updates via WebSocket.
+
+        Args:
+            symbol: Trading pair symbol
+            callback: Optional callback function to receive ticker updates
+        """
+        # Default implementation - subclasses should override for real WebSocket
+        pass
+
+    async def unsubscribe_ticker(self, symbol: str):
+        """Unsubscribe from ticker updates.
+
+        Args:
+            symbol: Trading pair symbol
+        """
+        pass
+
+    def get_latest_ticker(self, symbol: str) -> Optional[Ticker]:
+        """Get latest cached ticker data from WebSocket.
+
+        Args:
+            symbol: Trading pair symbol
+
+        Returns:
+            Latest ticker if available, None otherwise
+        """
+        return self._ticker_cache.get(symbol)
+
+    def _update_ticker_cache(self, symbol: str, ticker: Ticker):
+        """Update ticker cache and notify callbacks.
+
+        Args:
+            symbol: Trading pair symbol
+            ticker: New ticker data
+        """
+        self._ticker_cache[symbol] = ticker
+
+        # Notify callbacks
+        if symbol in self._ticker_callbacks:
+            for callback in self._ticker_callbacks[symbol]:
+                try:
+                    callback(ticker)
+                except Exception as e:
+                    from loguru import logger
+                    logger.error(f"Error in ticker callback: {e}")
+
+    @property
+    def is_ws_connected(self) -> bool:
+        """Check if WebSocket is connected."""
+        return self._ws_connected

@@ -8,8 +8,11 @@ import aiohttp
 import hmac
 import hashlib
 import time
+import json
+import asyncio
+import websockets
 from decimal import Decimal
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 from loguru import logger
 
 from .base import (
@@ -32,7 +35,9 @@ class PacificaExchange(BaseExchange):
         super().__init__(config, credentials)
         # Pacifica API endpoint (based on docs.pacifica.fi)
         self.base_url = "https://api.pacifica.fi/v1" if not self.testnet else "https://api-testnet.pacifica.fi/v1"
+        self.ws_url = "wss://ws.pacifica.fi" if not self.testnet else "wss://ws-testnet.pacifica.fi"
         self.session: Optional[aiohttp.ClientSession] = None
+        self.ws_connection: Optional[websockets.WebSocketClientProtocol] = None
         self.api_key = credentials.get("api_key", "")
         self.api_secret = credentials.get("api_secret", "")
 
@@ -54,9 +59,21 @@ class PacificaExchange(BaseExchange):
 
     async def disconnect(self):
         """Disconnect from Pacifica."""
+        # Cancel WebSocket tasks
+        for task in self._ws_tasks:
+            task.cancel()
+        self._ws_tasks.clear()
+
+        # Close WebSocket connection
+        if self.ws_connection:
+            await self.ws_connection.close()
+            self.ws_connection = None
+
         if self.session:
             await self.session.close()
+
         self._connected = False
+        self._ws_connected = False
         logger.info("Disconnected from Pacifica")
 
     def _generate_signature(self, timestamp: str, method: str, path: str, body: str = "") -> str:
@@ -323,3 +340,107 @@ class PacificaExchange(BaseExchange):
             'partial': OrderStatus.PARTIALLY_FILLED,
         }
         return status_map.get(status.lower(), OrderStatus.OPEN)
+
+    # WebSocket Methods
+
+    async def subscribe_ticker(self, symbol: str, callback: Optional[Callable[[Ticker], None]] = None):
+        """Subscribe to ticker updates via WebSocket.
+
+        Args:
+            symbol: Trading pair symbol
+            callback: Optional callback function to receive ticker updates
+        """
+        normalized_symbol = self.normalize_symbol(symbol)
+
+        # Register callback
+        if callback:
+            if symbol not in self._ticker_callbacks:
+                self._ticker_callbacks[symbol] = []
+            self._ticker_callbacks[symbol].append(callback)
+
+        # Start WebSocket task
+        task = asyncio.create_task(self._watch_ticker_ws(symbol, normalized_symbol))
+        self._ws_tasks.append(task)
+
+        logger.info(f"Subscribed to ticker updates for {symbol} via WebSocket")
+
+    async def _watch_ticker_ws(self, symbol: str, normalized_symbol: str):
+        """Watch ticker updates via WebSocket.
+
+        Args:
+            symbol: Original symbol
+            normalized_symbol: Exchange-normalized symbol
+        """
+        try:
+            async with websockets.connect(self.ws_url) as ws:
+                self.ws_connection = ws
+                self._ws_connected = True
+
+                # Subscribe to ticker channel
+                subscribe_msg = {
+                    "type": "subscribe",
+                    "channel": "ticker",
+                    "market": normalized_symbol,
+                }
+                await ws.send(json.dumps(subscribe_msg))
+                logger.info(f"WebSocket subscribed to {normalized_symbol}")
+
+                # Receive messages
+                async for message in ws:
+                    if not self._connected:
+                        break
+
+                    try:
+                        data = json.loads(message)
+
+                        # Parse ticker data
+                        if data.get("type") == "ticker" and data.get("market") == normalized_symbol:
+                            ticker = Ticker(
+                                symbol=symbol,
+                                bid=Decimal(str(data.get("bestBid", data.get("bid", 0)))),
+                                ask=Decimal(str(data.get("bestAsk", data.get("ask", 0)))),
+                                last=Decimal(str(data.get("lastPrice", data.get("last", 0)))),
+                                timestamp=int(data.get("timestamp", time.time() * 1000)),
+                                raw_data=data,
+                            )
+
+                            # Update cache and notify callbacks
+                            self._update_ticker_cache(symbol, ticker)
+
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse WebSocket message: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing WebSocket message: {e}")
+
+        except asyncio.CancelledError:
+            logger.info(f"Ticker watch cancelled for {symbol}")
+        except Exception as e:
+            logger.error(f"WebSocket error for {symbol}: {e}")
+            self._ws_connected = False
+        finally:
+            self.ws_connection = None
+
+    async def unsubscribe_ticker(self, symbol: str):
+        """Unsubscribe from ticker updates.
+
+        Args:
+            symbol: Trading pair symbol
+        """
+        # Remove callbacks
+        if symbol in self._ticker_callbacks:
+            del self._ticker_callbacks[symbol]
+
+        # Send unsubscribe message if WebSocket is connected
+        if self.ws_connection:
+            normalized_symbol = self.normalize_symbol(symbol)
+            unsubscribe_msg = {
+                "type": "unsubscribe",
+                "channel": "ticker",
+                "market": normalized_symbol,
+            }
+            try:
+                await self.ws_connection.send(json.dumps(unsubscribe_msg))
+            except Exception as e:
+                logger.error(f"Failed to unsubscribe: {e}")
+
+        logger.info(f"Unsubscribed from ticker updates for {symbol}")
