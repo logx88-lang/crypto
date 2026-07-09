@@ -702,3 +702,191 @@ Let me re-read the exact text in that section.
 만들고 나면 **샘플 목록·구조·내용 요약을 먼저 드리고**, 실제 업무 자료와 대조해 "이런 점이 다르다"는 피드백을 받은 뒤(=검토 게이트) 승인되면 파싱→인덱싱→질의 E2E로 들어갑니다.
 
 **바로 더미 샘플 세트 생성을 시작할까요?** 아니면 bge-m3 재반입을 먼저 처리하시겠어요? 원하시는 순서를 알려주세요.
+
+### 사용자 · 2026-07-09T08:33:52.633Z
+
+더미샘플 생성부터 진행해 bge-m3 반임은 내가 따로 진행할게
+
+### 어시스턴트 · 2026-07-09T08:34:28.303Z
+
+좋습니다. 더미 샘플 세트 생성부터 진행하겠습니다. bge-m3 반입은 따로 진행하시는 것으로 하고요.
+
+먼저 이 개발 환경에서 샘플 생성에 필요한 라이브러리(문서 생성용)를 확인하겠습니다.
+
+### 어시스턴트 · 2026-07-09T08:34:30.272Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:34:34.144Z
+
+I need to install the document-generation libraries (dev-only tooling, not part of the offline deployment). Let me install them.
+
+### 어시스턴트 · 2026-07-09T08:34:35.810Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:35:14.946Z
+
+All set. I'll create the sample generator now. To meaningfully test the HEX confirmation-step workflow later, I'll create **two distinct fictional device protocols** (so the system must disambiguate and ask for confirmation), plus general knowledge docs and HEX logs in the exact formats you shared.
+
+### 어시스턴트 · 2026-07-09T08:35:16.894Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T08:35:18.388Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T08:35:20.092Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T08:35:22.161Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T08:35:32.878Z
+
+The generator needs Korean font support for PDF and images. Let me check what's available.
+
+### 어시스턴트 · 2026-07-09T08:35:36.215Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:36:06.711Z
+
+reportlab has built-in Korean (HYSMyeongJo), and WenQuanYi Zen Hei covers Hangul for images. Writing the generator now.
+
+### 어시스턴트 · 2026-07-09T08:38:13.695Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T08:38:20.637Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T08:38:20.828Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T08:38:25.864Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:38:42.697Z
+
+All 12 files generated and every HEX frame passes checksum self-validation. Let me verify the quality-critical bits: Korean text in the PNG (for OCR realism), PDF text extractability, and CP949 encoding detection.
+
+### 어시스턴트 · 2026-07-09T08:38:48.552Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:38:58.332Z
+
+CP949 detection works. The PDF check hit a pre-existing broken `cryptography`/`cffi` in this env (unrelated to our PDF). Let me fix the dependency and retry.
+
+### 어시스턴트 · 2026-07-09T08:39:02.191Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:39:08.895Z
+
+PDF extraction is solid — 1372 chars, 3 tables parsed, Korean intact, table headers correct. Now let me visually confirm the diagram image renders Korean properly (matters for OCR realism).
+
+### 어시스턴트 · 2026-07-09T08:39:09.061Z
+
+[도구 호출: Read]
+
+### 어시스턴트 · 2026-07-09T08:39:18.567Z
+
+The diagram renders Korean+English cleanly — a good OCR sample. Let me glance at the HEX log contents to document them accurately in the review manifest.
+
+### 어시스턴트 · 2026-07-09T08:39:20.941Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:39:24.678Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:39:27.545Z
+
+All samples verified. Now writing the review-gate manifest.
+
+### 어시스턴트 · 2026-07-09T08:39:28.539Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T08:39:28.548Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T08:40:01.415Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T08:40:13.278Z
+
+Now updating progress log and adding a dev-requirements note for reproducibility, then committing.
+
+### 어시스턴트 · 2026-07-09T08:40:16.792Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T08:40:38.556Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:40:41.670Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:40:52.659Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:40:56.256Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T08:41:09.471Z
+
+생성·검증·커밋·push 모두 완료했습니다. **검토 게이트** 단계입니다 — 아래를 실제 자료와 대조해 주세요.
+
+핵심 파일을 바로 열어보실 수 있게 보내드립니다.
+
+### 어시스턴트 · 2026-07-09T08:41:11.397Z
+
+[도구 호출: SendUserFile]
+
+### 어시스턴트 · 2026-07-09T08:41:34.942Z
+
+## 더미 샘플 세트 생성 완료 (검토 게이트)
+
+`samples/dummy_set/`에 **12개 파일**을 만들었고, 자체 검증도 통과했습니다.
+
+**설계 의도**: 가상 장비 **2종**의 프로토콜 명세를 각각 다른 포맷(PDF/Word)으로 만들어, HEX 분석 시 **후보가 여러 개**가 되도록 했습니다 → "이 프로토콜이 맞습니까?" **UI 확인 단계**를 실제로 테스트할 수 있습니다. 두 규격은 **시작 바이트가 다릅니다**(XM-200=STX `0x02` / TG-15=SOH `0x01`).
+
+| 분류 | 파일 | 특징 |
+|---|---|---|
+| 프로토콜 명세 | `XM-200_..._protocol.pdf` | 코인 컨트롤러, 명령표 17개·에러표 6개 (표 3개 추출 확인) |
+| 프로토콜 명세 | `TG-15_..._protocol.docx` | 센서 게이트웨이, SOH/CRC16 구조 |
+| HEX 로그 | `coin_log_dash.txt` / `coin_log_ts.txt` / `aee.txt` / `eefe.dat` | 주신 예시대로 타임스탬프±·`[XX]`·`-`구분자·바이너리 |
+| 일반 문서 | `equipment_list.xlsx` | 병합셀+다중헤더 |
+| 일반 문서 | `operation_manual.docx` / `training.pptx` | 문단+표+**이미지 삽입** |
+| 일반 문서 | `faq_utf8.txt` / `notice_cp949.txt` | UTF-8 / **CP949** 인코딩 판별 테스트 |
+| 이미지 | `system_diagram.png` | 한/영 구성도 (OCR용) |
+
+**검증 결과**: HEX 프레임 XOR 체크섬 **전부 유효**, PDF 한글 텍스트/표 추출 OK, CP949 자동판별 OK, PNG 한글 렌더 OK. 예로 `[02][02][12][01][11][03]`은 명세대로 해석하면 **"COIN_IN, 코인 1개 투입"**입니다.
+
+---
+
+## 🔎 검토·피드백 부탁드립니다 (실제 자료와 대조)
+
+1. **프로토콜 명세 구조** — 실제 명세의 프레임/필드/명령표가 이와 많이 다른가요? (필드 폭, CRC 종류, 헤더 형태 등)
+2. **HEX 포맷** — 실제 로그에 위 4가지 외 다른 형태가 있나요? (예: 공백 구분 `02 01 10`, `0x` 접두, ASCII 혼합, 방향 표시 `[00]-[00]`의 `-`가 송수신 구분인지 등)
+3. **문서 유형 비중** — 실제로 PDF/Word 비중이 이 정도인가요? 표가 훨씬 크거나 페이지가 많은가요?
+4. **용어/약어** — 실제 장비명·명령어·약어 스타일과 유사한가요? (지금은 가상 장비명)
+5. **누락 포맷** — 빠진 실제 자료 유형이 있나요?
+
+특히 **2번(HEX 실제 포맷)**이 파서 정확도에 직결되니 중요합니다. "실제는 이런 점이 다르다"를 알려주시면 샘플을 수정하고, **승인해 주시면** 그때 파싱→인덱싱→질의 E2E(MVP) 구현에 착수하겠습니다. (bge-m3 반입과 병행 가능합니다.)

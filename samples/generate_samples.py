@@ -78,6 +78,25 @@ def bracket(frame, sep=""):
     return sep.join(f"[{b:02x}]" for b in frame)
 
 
+# --- TG-15 프레임(장비별 포맷이 다름을 보여주기 위한 다른 규격) -------------------
+#   [SOH=0x01][ADDR][CMD][LEN(2,BE)][PAYLOAD][CRC16(2,BE)]  CRC-16/CCITT(SOH~PAYLOAD)
+SOH = 0x01
+
+
+def crc16_ccitt(data, crc=0xFFFF):
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if (crc & 0x8000) else (crc << 1) & 0xFFFF
+    return crc
+
+
+def tg15_frame(addr, cmd, payload=b""):
+    body = bytes([SOH, addr, cmd]) + struct.pack(">H", len(payload)) + payload
+    crc = crc16_ccitt(body)
+    return body + struct.pack(">H", crc)
+
+
 # ----------------------------------------------------------------------------
 # 1) 프로토콜 명세 — PDF (XM-200) : reportlab, 한글 CID 폰트
 # ----------------------------------------------------------------------------
@@ -89,7 +108,7 @@ def make_protocol_pdf():
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                    TableStyle)
+                                    TableStyle, PageBreak)
 
     pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
     FONT = "HYSMyeongJo-Medium"
@@ -161,6 +180,71 @@ def make_protocol_pdf():
                       ("ERROR 코인 부족(0x03)", ex_err)]:
         el.append(Paragraph(f"· {label} : {bracket(fr)}  "
                             f"(hex: {' '.join(f'{b:02X}' for b in fr)})", body))
+
+    # --- 실제 자료 반영: 문서당 표·페이지가 많음 → 추가 표들을 여러 페이지로 확장 ---
+    def styled(rows, widths, head="#dfe7f2"):
+        t = Table(rows, colWidths=widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ("FONT", (0, 0), (-1, -1), FONT, 7.5),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(head)),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f6fa")])]))
+        return t
+
+    el.append(PageBreak())
+    el.append(Paragraph("5. 레지스터 맵 (Register Map)", h2))
+    reg = [["주소(hex)", "이름", "R/W", "설명"]]
+    regdefs = [("코인 카운터", "R"), ("잔액 상위", "R"), ("잔액 하위", "R"),
+               ("호퍼 레벨", "R"), ("잠금 상태", "RW"), ("에러 래치", "RW"),
+               ("펌웨어 버전", "R"), ("시리얼 번호", "R"), ("설정 플래그", "RW"),
+               ("하트비트 주기", "RW"), ("통신 속도", "RW"), ("장비 주소", "RW")]
+    for i, (nm, rw) in enumerate(regdefs):
+        reg.append([f"0x{0x40+i:02X}", nm, rw, f"{nm} 레지스터 / {nm} register"])
+    el.append(styled(reg, [55, 90, 40, 255]))
+    el.append(Spacer(1, 8))
+
+    el.append(Paragraph("6. 상태 비트필드 (STATUS 응답 1바이트)", h2))
+    bits = [["비트", "이름", "0", "1"]]
+    bitdefs = [("READY 준비", "미준비", "준비완료"), ("BUSY 처리중", "대기", "처리중"),
+               ("JAM 잼", "정상", "잼발생"), ("EMPTY 부족", "충분", "부족"),
+               ("LOCK 잠금", "해제", "잠금"), ("ERROR 에러", "정상", "에러"),
+               ("HOPPER 호퍼", "정상", "이상"), ("RSV 예약", "-", "-")]
+    for i, (nm, z, o) in enumerate(bitdefs):
+        bits.append([f"b{i}", nm, z, o])
+    el.append(styled(bits, [40, 130, 135, 135]))
+    el.append(Spacer(1, 8))
+
+    el.append(Paragraph("7. 타이밍 파라미터 (Timing)", h2))
+    tim = [["항목", "최소", "표준", "최대", "단위"],
+           ["응답 지연 T_resp", "5", "20", "100", "ms"],
+           ["프레임 간격 T_gap", "2", "10", "50", "ms"],
+           ["재전송 대기 T_retry", "100", "200", "500", "ms"],
+           ["하트비트 주기 T_hb", "5", "10", "30", "s"],
+           ["타임아웃 T_out", "0.5", "1.0", "3.0", "s"]]
+    el.append(styled(tim, [150, 70, 70, 70, 60]))
+    el.append(Spacer(1, 8))
+
+    el.append(PageBreak())
+    el.append(Paragraph("8. 응답 코드 (Response / NAK 사유)", h2))
+    nak = [["코드(hex)", "이름", "설명"]]
+    nakdefs = [("BAD_CHK", "체크섬 불일치"), ("BAD_LEN", "길이 오류"),
+               ("UNK_CMD", "미지원 명령"), ("BUSY", "장비 사용중"),
+               ("RANGE", "파라미터 범위 초과"), ("NO_COIN", "코인 없음"),
+               ("LOCKED", "투입구 잠김"), ("FAULT", "하드웨어 장애")]
+    for i, (nm, desc) in enumerate(nakdefs):
+        nak.append([f"0x{0x80+i:02X}", nm, desc])
+    el.append(styled(nak, [60, 100, 280], head="#f2e0e0"))
+    el.append(Spacer(1, 8))
+
+    el.append(Paragraph("9. 설정 키 (CONFIG 키 목록)", h2))
+    cfg = [["키(hex)", "이름", "기본값", "범위"]]
+    cfgdefs = [("장비 주소", "0x01", "0x01~0x1F"), ("통신 속도", "9600", "9600~115200"),
+               ("하트비트", "10s", "5~30s"), ("자동 잠금", "OFF", "ON/OFF"),
+               ("코인 단위", "100", "10~1000"), ("호퍼 경보 레벨", "20", "0~100"),
+               ("재시도 횟수", "3", "0~10"), ("로그 보관", "7일", "1~90일")]
+    for i, (nm, dv, rng) in enumerate(cfgdefs):
+        cfg.append([f"0x{0x10+i:02X}", nm, dv, rng])
+    el.append(styled(cfg, [55, 120, 110, 150]))
 
     doc.build(el)
     return path
@@ -294,6 +378,41 @@ def make_hex_logs():
         for _, fr in seq:
             f.write(fr)
     paths.append(p4)
+
+    # 포맷5: (장비별 상이) 공백 구분 + 0x 접두 — XM-200이라도 로거가 다르면 표기가 다름
+    p5 = os.path.join(DIRS["hex"], "coin_log_space0x.txt")
+    with open(p5, "w", encoding="utf-8") as f:
+        for i, (_, fr) in enumerate(seq):
+            f.write(f"{ts(i)} " + " ".join(f"0x{b:02X}" for b in fr) + "\n")
+    paths.append(p5)
+
+    # 포맷6: 다른 장비(TG-15) — 완전히 다른 프레임/구분자([TX]/[RX] 방향 표시, 공백 hex)
+    p6 = os.path.join(DIRS["hex"], "sensor_log_tg15.txt")
+    tg_seq = [
+        ("TX", tg15_frame(0x05, 0x41)),                       # RD_TEMP 요청
+        ("RX", tg15_frame(0x05, 0x41, struct.pack(">h", 250))),  # 25.0도
+        ("TX", tg15_frame(0x05, 0x42)),                       # RD_HUMID 요청
+        ("RX", tg15_frame(0x05, 0x42, struct.pack(">H", 47))),   # 47%RH
+        ("RX", tg15_frame(0x05, 0x60, bytes([0x03, 0x01]))),     # ALARM ch3
+    ]
+    with open(p6, "w", encoding="utf-8") as f:
+        for i, (dirn, fr) in enumerate(tg_seq):
+            f.write(f"07/08 01:1{i}:00 [{dirn}] " + " ".join(f"{b:02X}" for b in fr) + "\n")
+    paths.append(p6)
+
+    # 포맷7: 자연어(사람이 읽는) 로그 — hex가 아님
+    p7 = os.path.join(DIRS["hex"], "event_log_natural.txt")
+    with open(p7, "w", encoding="utf-8") as f:
+        f.write(
+            "2024-07-08 09:12:03 [XM-200] 코인 투입 감지: 1개, 누적 잔액 500원\n"
+            "2024-07-08 09:12:05 [XM-200] DISPENSE 요청 처리: 500원 지급 완료 (hopper level 63%)\n"
+            "2024-07-08 09:12:31 [XM-200] WARN 코인 잼 감지(JAM), 사용자 재시도 유도\n"
+            "2024-07-08 09:12:33 [XM-200] RESET 수행 후 정상 복귀\n"
+            "2024-07-08 09:12:40 [TG-15] 온도 경보: 채널3 52.3도 (임계 50.0도 초과)\n"
+            "2024-07-08 09:12:41 [TG-15] ALARM raised on CH3, status=WARN, ack required\n"
+            "2024-07-08 09:13:10 [TG-15] 담당자 확인 후 알람 해제(CLR_ALARM)\n"
+        )
+    paths.append(p7)
 
     return paths, seq
 
