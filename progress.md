@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-07-09 (3) — bge-m3 태그 검증 완료, 정품 재반입 확정
+
+### 새로 알게 된 사실 (검증 결과)
+- 오프라인 PC `ollama show bge-m3-FP16.gguf` = **architecture=nomic-bert, 136.73M params,
+  embedding length 768, context 2048, F16**. → 기존 `bge-m3-FP16.gguf` 태그는 **nomic 오라벨**로
+  확정. 실제 bge-m3(1024d, ~567M)가 아님.
+
+### 의사결정
+- **정품 bge-m3 재반입 확정**(사용자 승인). 온라인 PC `ollama pull bge-m3`(1024d, F16 ~1.2GB) →
+  USB 이전 → `ollama show`로 1024d 검증. 절차서 `docs/model_transfer.md` 신설.
+- 애플리케이션 설정/코드는 **정품 `bge-m3` 태그만 참조**, 오라벨 태그 미사용.
+- 메모리 예산: 정품 bge-m3 F16 ~1.2GB 반영 → 질의 GPU ≈ 6.9GB(여전히 8GB 내).
+
+### 다음 액션
+1. (사용자) 정품 bge-m3 재반입 후 1024d 검증(형편 될 때). 샘플 단계와 병행 가능.
+2. **더미 샘플 세트 생성 → 검토 게이트** 진행.
+
+---
+
 ## 2026-07-09 (2) — open_questions 답변 반영, 설계 v0.2
 
 ### 새로 알게 된 사실 / 제약

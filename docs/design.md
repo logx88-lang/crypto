@@ -22,7 +22,7 @@
 |---|---|---|
 | 웹 UI | **Streamlit** | 단일 호스트 다중 사용자(2~3명), 순수 wheel, 업로드/확인단계 UI 용이 |
 | LLM | **qwen3_8b_ctx32998** (주) / `qwen3.5:2b`(폴백) | 8B·32k 컨텍스트 5.2GB → HEX 로그·다청크 RAG에 유리 |
-| 임베딩 | **bge-m3 (1024d) via Ollama** | 한/영 다국어 검색 강함. ⚠️태그 검증 필요(Q1-b) |
+| 임베딩 | **bge-m3 (1024d) via Ollama** | 한/영 다국어 검색 강함. **정품 재반입 확정**(기존 `bge-m3-FP16.gguf` 태그는 nomic 오라벨 → §10-이전절차) |
 | 리랭커 | **bge-reranker-v2-m3 (CPU)** | 사용자 요청으로 **MVP 포함**. torch CPU로 질의 VRAM 무경합 |
 | 벡터 DB | **ChromaDB** | 순수 파이썬, 메타데이터 필터 편의. BM25 미내장 → 별도 결합(§5) |
 | LLM 런타임 | **Ollama** (기설치) | 모델 스와핑/keep_alive로 VRAM 관리 |
@@ -65,7 +65,7 @@
 |---|---|---|---|
 | LLM `qwen3_8b_ctx32998` | 8B Q4, 32k ctx 지원 | **GPU** | ~5.2GB (+ KV) |
 | KV 캐시 | `num_ctx=4096` 기본 | GPU | ~0.5GB (8192면 ~1GB) |
-| 임베딩 bge-m3 | 1024d | **GPU**(질의 단건은 CPU도 가능) | ~0.5–1.2GB |
+| 임베딩 bge-m3 | 1024d, F16 ~1.2GB | **GPU**(질의 단건은 CPU도 가능) | ~1.2GB |
 | 리랭커 bge-reranker-v2-m3 | CrossEncoder | **CPU (torch CPU)** | 0 (GPU) |
 | OCR | PaddleOCR | **인제스천 시점만** | 질의 무경합 |
 
@@ -79,8 +79,9 @@
 4. OCR은 인제스천 시점에만 동작하므로 질의 LLM과 경합하지 않음(배치 처리).
 5. `num_ctx` 기본 4096, HEX 장문 분석 시 선택적 상향(32k 모델이므로 가능하나 KV VRAM 주의).
 
-> ⚠️ **bge-m3 태그 검증 필요**: `bge-m3-FP16.gguf`가 nomic과 동일 digest/크기(274MB)로 보임.
-> 실제 bge-m3(1024d, ~1.1GB↑)인지 확인 후 예산 확정(Q1-b). nomic(768d)이면 임베딩 차원·품질이 달라짐.
+> ✅ **bge-m3 태그 검증 완료(해결)**: 기존 `bge-m3-FP16.gguf` 태그는 실제로 **nomic-bert 136.73M,
+> 768d, ctx 2048**(=nomic-embed-text 오라벨)로 확인됨. **정품 bge-m3(1024d) 재반입 확정**(§10-이전절차).
+> 위 예산은 정품 bge-m3(F16 ~1.2GB) 기준으로 반영됨.
 
 ---
 
@@ -126,7 +127,8 @@ EUC-KR/CP949/UTF-8(+BOM) 자동 판별, 실패 시 CP949→UTF-8 폴백.
 
 ### 임베딩
 - **bge-m3(1024d) via Ollama**. 인제스천 배치=GPU, 질의 단건=GPU/CPU 선택.
-- ⚠️ 태그 검증(Q1-b) 후 차원/모델 확정.
+- 기존 `bge-m3-FP16.gguf` 태그는 nomic 오라벨로 확인 → **정품 bge-m3 재반입 확정**(§10-이전절차).
+  코드/설정은 재반입한 정품 태그(예: `bge-m3`)를 참조하고, 오라벨 태그는 사용하지 않는다.
 
 ### 하이브리드 검색 (dense + sparse)
 - **Sparse(BM25)**: `kiwipiepy` 형태소 토큰화 → `bm25s`(순수 파이썬). 영어는 소문자/공백 정규화.
@@ -232,6 +234,12 @@ pip download -r requirements.txt \
 - `smoke_test.py`: import + Ollama 연결/모델 존재 + 임베딩 1건(차원 확인) + 인덱싱→검색→리랭킹 왕복.
 - Ollama 모델: blobs+manifests USB 이전 또는 GGUF+Modelfile `ollama create`. 리랭커/OCR 가중치도 USB.
 
+### 모델 이전 절차 (요약 — 상세는 `docs/model_transfer.md`)
+- **정품 bge-m3 재반입(필수)**: 온라인 PC `ollama pull bge-m3` → `~/.ollama/models`의 blobs+manifests를
+  USB로 오프라인 PC 동일 경로(Windows `C:\Users\<user>\.ollama\models`)에 병합 → `ollama show bge-m3`로
+  **1024차원** 확인. 코드는 정품 `bge-m3` 태그를 참조(오라벨 `bge-m3-FP16.gguf` 미사용).
+- 리랭커 `bge-reranker-v2-m3`, OCR 모델 가중치: 온라인에서 받아 USB로 이전.
+
 ### 배포 폴더
 ```
 crypto-rag-dist/  src/  wheelhouse/  models/  install.bat|ps1  smoke_test.py  docs/(이전가이드+매뉴얼)
@@ -268,7 +276,7 @@ crypto-rag-dist/  src/  wheelhouse/  models/  install.bat|ps1  smoke_test.py  do
 
 | 리스크 | 영향 | 대응 |
 |---|---|---|
-| **bge-m3 태그가 실제로 nomic**(274MB 동일 digest) | 임베딩 차원/품질 상이 | Q1-b 검증(`ollama show`/임베딩 차원), 필요 시 정품 bge-m3 재반입 |
+| ~~bge-m3 태그가 실제로 nomic~~ **[해결]** | 임베딩 차원/품질 상이 | 검증 완료(nomic 768d 오라벨 확인) → **정품 bge-m3 재반입 확정**(§10-이전절차) |
 | chromadb/onnxruntime/torch 네이티브 wheel 누락 | 오프라인 설치 실패 | 구현 첫 단계 `pip download` 실측, 백업안(sqlite-vec/llama-cpp 리랭커) |
 | 리랭커 CPU 지연 | 응답 지연 | top-N 축소, 상향 시 GPU 이동 |
 | HEX 로그 컨텍스트 초과 | 분석 실패 | 패킷 분할·관련 구간 추출(§7) |

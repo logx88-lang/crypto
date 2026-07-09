@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | 웹 UI | Streamlit (단일 호스트 다중 사용자 2~3명, `0.0.0.0:8501`) |
 | LLM | qwen3_8b_ctx32998 (주, 8B·32k ctx) / qwen3.5:2b (폴백) via Ollama |
-| 임베딩 | bge-m3 (1024d) via Ollama — ⚠️태그 검증 필요(open_questions Q1-b) |
+| 임베딩 | bge-m3 (1024d) via Ollama — **정품 재반입 확정**(기존 태그는 nomic 오라벨, `docs/model_transfer.md`) |
 | 리랭커 | bge-reranker-v2-m3 (sentence-transformers CrossEncoder, **CPU**) — MVP 포함 |
 | 벡터 DB | ChromaDB (BM25 미내장 → kiwipiepy + bm25s 별도 인덱스 + RRF 융합) |
 | 문서 파서 | openpyxl / python-docx / python-pptx / **pdfplumber** / charset-normalizer |

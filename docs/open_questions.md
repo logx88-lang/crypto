@@ -1,7 +1,7 @@
 # 확인 질문 목록 / 답변 반영
 
-> 2026-07-09 사용자 답변 반영 완료. 남은 **후속 확인 1건**(Q1-b bge-m3 태그 검증)만 미해결.
-> 결정 근거는 `progress.md`에, 상세 반영은 `docs/design.md`에 기록.
+> 2026-07-09 사용자 답변 반영 완료. **Q1-b 해결**(정품 bge-m3 재반입 확정). 미해결 질문 없음.
+> 결정 근거는 `progress.md`에, 상세 반영은 `docs/design.md`·`docs/model_transfer.md`에 기록.
 
 ## Q1. LLM 모델 — 답변됨 ✅ (단, 후속 확인 1건)
 오프라인 PC `ollama list` 결과(요지):
@@ -20,18 +20,11 @@
 - 답변 톤: **공식체** 확정.
 - 참고: Qwen3 계열은 thinking 모드가 있어 장황할 수 있음 → RAG 프롬프트에서 `/no_think` 등으로 억제 예정.
 
-### Q1-b. (후속·미해결) bge-m3 임베딩 태그 검증 — 확인 필요 🔴
-- `ollama list`에서 `bge-m3-FP16.gguf:latest`와 `nomic-embed-text:latest`가 **동일 digest
-  `bddc9fde5061`, 동일 274MB**로 표시됩니다.
-- FP16 bge-m3(568M 파라미터)는 최소 ~1.1GB여야 하므로 **274MB는 실제 bge-m3가 아닐 가능성**이
-  큽니다(태그가 nomic-embed-text를 가리키고 있을 수 있음).
-- **확인 요청**: 오프라인 PC에서 아래를 확인해 주세요.
-  - `ollama show bge-m3-FP16.gguf` 출력(파라미터 수/아키텍처)
-  - 임베딩 차원: bge-m3면 **1024**, nomic이면 **768** → `curl`로 임베딩 1건 뽑아 벡터 길이 확인
-    ```
-    ollama run bge-m3-FP16.gguf  (또는) POST /api/embeddings 로 dimension 확인
-    ```
-- 만약 실제 bge-m3가 아니면 → 개발 PC에서 **정품 bge-m3 GGUF를 USB로 재반입** 필요.
+### Q1-b. bge-m3 임베딩 태그 검증 — 해결됨 ✅
+- `ollama show` 결과: **architecture=nomic-bert, parameters=136.73M, embedding length=768,
+  context 2048** → 기존 `bge-m3-FP16.gguf` 태그는 **nomic 오라벨**로 확정(실제 bge-m3 아님).
+- **결정: 정품 bge-m3(1024d) 재반입**(사용자 승인). 절차는 `docs/model_transfer.md`.
+- 애플리케이션은 재반입한 정품 `bge-m3` 태그를 참조하고 오라벨 태그는 사용하지 않는다.
 
 ## Q2. 사내망 접속 — 답변됨 ✅
 - 인바운드 허용 가능, 방화벽 허용 주소면 IP/포트 지정 무관, **동시 2~3명**.
