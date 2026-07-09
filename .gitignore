@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 대화 로깅 훅 상태 파일 (uuid 추적용, 커밋 불필요)
+.claude/hooks/.log_state.json
+
+# 로컬 인덱스/데이터 산출물 (오프라인 배포물·대용량)
+chroma/
+*.chroma
+index/*.bin
+wheelhouse/
+models/
+*.gguf
+
+# 더미 샘플/업로드 임시물
+samples/_generated/
+uploads/
+
+# OS/에디터
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
