@@ -61,11 +61,25 @@ HEX 모드는 별도 분기(후보 검색 → **UI 확인 단계 필수** → �
 - **HEX 자동 추측 금지**: 프로토콜 명세는 사용자 확인 단계를 거친 뒤에만 해석에 사용한다.
 - **더미 샘플만 사용**: 테스트 데이터는 직접 생성한 더미 샘플이며, 검토 게이트 승인 후 사용한다.
 
+## 코드 구조 (진행 중)
+
+- `rag/` — 애플리케이션 패키지.
+  - `rag/ingest/` — 포맷별 파서(`parsers.py`)·표 직렬화(`tables.py`)·표 보존 청킹(`chunker.py`)·모델(`models.py`). **결정적, Ollama 불필요.**
+  - `rag/logs/` — 통신 로그 분석: 장비별 파싱 프로파일(`profiles.py`)·HEX/자연어 감지(`detect.py`)·바이트 복원+체크섬(`parser.py`).
+  - `rag/config.py` — 모델 태그·청킹/검색 파라미터(환경변수로 덮어쓰기).
+  - `rag/index /retrieve /generate /app` — 2차 증분(Ollama 필요, 미구현).
+- `samples/` — 더미 샘플 생성기(`generate_samples.py`)·산출물(`dummy_set/`)·검토요약(`MANIFEST.md`).
+- `tests/test_core.py` — 결정적 코어를 `dummy_set` 샘플로 대조 검증.
+
 ## 실행 / 테스트
 
-아직 애플리케이션 코드가 없어 실행/테스트 커맨드는 미정이다. MVP 착수 시 이 절에
-설치(`pip install --no-index --find-links wheelhouse ...`), 실행(`streamlit run ...`),
-테스트(단일 테스트 실행 포함), smoke test 커맨드를 기록한다.
+개발 환경 의존성(파서 실행용): `pip install openpyxl python-docx python-pptx pdfplumber charset-normalizer`
+(오프라인 배포는 `requirements.in` → wheelhouse. §design 10)
+
+- **결정적 코어 테스트**(Ollama 불필요): `python3 tests/test_core.py`
+  - 단일 테스트: `python3 -c "import tests.test_core as t; t.test_xm200_bracket_all_valid()"`
+- **더미 샘플 재생성**: `python3 samples/generate_samples.py`
+- 인덱싱/질의/Streamlit 실행(`streamlit run ...`)·smoke test는 2차 증분(Ollama 연동) 착수 시 기록한다.
 
 ## Git 워크플로우
 
