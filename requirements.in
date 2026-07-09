@@ -5,25 +5,29 @@
 # 아직 애플리케이션 코드가 없으므로 이 파일은 후보 목록이며 확정 매니페스트가 아니다.
 
 # --- UI ---
-streamlit            # 단일 호스트 다중 사용자 웹 UI
+streamlit            # 단일 호스트 다중 사용자 웹 UI (0.0.0.0:8501)
 
 # --- 벡터 DB / 검색 ---
 chromadb             # 벡터 저장/검색 (onnxruntime 등 네이티브 의존성 wheel 동반 확인 필요)
 kiwipiepy            # 한국어 형태소 분석 (BM25 토큰화) — Windows wheel 제공
 bm25s                # BM25 sparse 검색 (순수 파이썬) ; 대안 rank_bm25
 
+# --- 리랭커 (MVP 포함 — 사용자 요청) ---
+sentence-transformers  # bge-reranker-v2-m3 CrossEncoder 로더
+transformers           # sentence-transformers 의존 (순수 wheel)
+torch                  # 리랭커 백엔드. Windows CPU wheel(대용량). 상향 시 CUDA 빌드로 교체
+#   모델 가중치(bge-reranker-v2-m3)는 USB로 반입 (pip 대상 아님)
+
 # --- LLM / 임베딩 런타임 ---
-ollama               # Ollama 파이썬 클라이언트 (엔진은 배포 PC 기설치)
+ollama               # Ollama 파이썬 클라이언트 (엔진·모델은 배포 PC 기설치)
 
 # --- 문서 파서 ---
 openpyxl             # xlsx
 python-docx          # docx
 python-pptx          # pptx (Pillow 동반)
+pdfplumber           # pdf (표+텍스트, 순수 파이썬/MIT, pdfminer.six 동반) — 프로토콜 명세 주 포맷
 charset-normalizer   # txt 인코딩 자동 판별 (EUC-KR/CP949/UTF-8)
 
 # --- OCR (Phase 3, 도입 확정 시 활성화) ---
 # paddleocr
 # paddlepaddle       # Windows wheel 대용량 ; 모델 가중치 별도 반입
-
-# --- 리랭커 (Phase 3, 선택) ---
-# (bge-reranker-v2-m3 는 Ollama/GGUF 반입으로 처리 — 파이썬 패키지 아님)
