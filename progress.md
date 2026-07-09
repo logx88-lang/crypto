@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-09 (4) — 더미 샘플 세트 생성(검토 게이트 대기)
+
+### 한 일
+- `samples/generate_samples.py` 작성·실행 → `samples/dummy_set/`에 12개 파일 생성.
+  - 프로토콜 명세 2종: XM-200(**PDF**, STX/ETX/XOR), TG-15(**Word**, SOH/CRC16) — 후보 구분/확인단계 테스트용.
+  - HEX 로그 4종(.txt/.dat): 타임스탬프±, `[XX]`/`-`구분자/바이너리 — 사용자 제공 포맷 반영, XM-200 규격 준수.
+  - 일반 문서: xlsx(병합셀·다중헤더), docx(문단+표+이미지), pptx(표+이미지), txt(UTF-8/CP949).
+  - 이미지: 한/영 구성도 PNG(OCR용).
+- 검증: HEX 프레임 XOR 체크섬 전부 유효, PDF 한글 텍스트/표 추출 OK(1372자·표3), CP949 자동판별 OK,
+  PNG 한글 렌더 확인.
+- `samples/MANIFEST.md`(검토 요약)·`samples/requirements-dev.txt`(생성 전용 의존성) 작성.
+
+### 알게 된 사실 / 결정
+- 개발 PC 샘플 생성용 라이브러리(openpyxl/python-docx/python-pptx/reportlab/Pillow)는 **개발 전용**,
+  오프라인 배포물과 분리. reportlab 내장 한글 CID 폰트(HYSMyeongJo-Medium)로 외부 TTF 없이 PDF 한글 처리.
+- HEX 자체 정합성 확보(체크섬 유효) → 추후 파서 E2E 테스트에서 정답 대조 가능.
+
+### 다음 액션 (게이트)
+- **사용자 검토 대기**: `samples/MANIFEST.md`의 5개 항목 피드백 → 반영 후 승인 시 MVP 파이프라인 착수.
+
+---
+
 ## 2026-07-09 (3) — bge-m3 태그 검증 완료, 정품 재반입 확정
 
 ### 새로 알게 된 사실 (검증 결과)
