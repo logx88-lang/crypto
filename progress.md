@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-07-13 (2) — B단계 E2E 검증 완료 (실 Ollama, CPU 서버) ✅
+
+### 환경 구축 (VPN 서버, root 없이)
+- 2차 파이썬 의존성 설치: **torch 2.13.0+cpu**(CUDA 인덱스로 CPU wheel), chromadb 1.5.9,
+  kiwipiepy 0.23.2(+model), bm25s 0.3.9, sentence-transformers 5.6.0, transformers 5.13.1, streamlit 1.59.1.
+- **Ollama 0.31.2** — root 불필요, `ollama-linux-amd64.tar.zst`(zstd) → `~/.local` 추출, `serve` 상시 기동
+  (127.0.0.1:11434, CPU-only, 11.6GB 가용). ⚠️ 다운로드 URL은 GitHub 릴리스 자산(`.tar.zst`)만 유효
+  (구 `ollama.com/download/*.tgz` 404).
+- 모델 pull: `bge-m3`(1.2GB) + `qwen3:8b`(5.2GB).
+
+### 실측으로 확정된 사실
+- **bge-m3 = 1024d 정품 확인** (`/api/embed` 실측) — 이 서버에서 Q1-b 재확인(오라벨 아님).
+- **E2E 스모크 전 단계 통과**(`smoke_test.py`, exit 0): 임베딩차원→인덱싱(7문서/27청크)→하이브리드+
+  리랭커+LLM 답변(*"0x12=COIN_IN … [1]"* 출처정확)→근거없음 거부(*"…근거를 찾지 못했습니다"*)→
+  로그분석(명세후보→[명세1] 근거해석+체크섬불일치 이상징후 명시).
+- store+bm25 래퍼는 실 chromadb/bm25s/kiwipiepy로 별도 검증 통과.
+
+### 버그·이슈 수정 (E2E에서 적발)
+- **리랭커 repo id**: sentence-transformers가 bare 이름에 `cross-encoder/` 접두 → 존재하지 않는
+  repo로 401. `RAG_RERANKER` 기본값 **`BAAI/bge-reranker-v2-m3`**(정식 repo)로 수정.
+- **CPU 추론 타임아웃**: 로그해석(큰 프롬프트) LLM 호출이 300s 초과 → `CONFIG.llm_timeout`
+  (env `RAG_LLM_TIMEOUT`, 기본 600s) 신설 + LLM 요청에 `keep_alive:"10m"`(호출간 5.2GB 재적재 회피).
+- **BM25 id 타입**: bm25s가 `np.str_` 반환 → 순수 `str` 캐스팅(ChromaDB get/JSON 안전).
+
+### 운영 메모
+- 이 서버는 트레이딩 봇과 공유 → qwen3:8b CPU 추론은 전코어 부하. E2E 검증은 1회성으로 완료.
+  `ollama serve` 는 `logs/ollama_serve.log`로 상시 기동 중(불필요 시 프로세스 종료 가능).
+- 새 서버에서 실행: `RAG_LLM=qwen3:8b RAG_EMBED=bge-m3 RAG_RERANKER=BAAI/bge-reranker-v2-m3`
+  (config 기본은 배포 PC 태그 `qwen3_8b_ctx32998`).
+
+### 다음 액션
+1. (사용자) `gh auth login` → 개발 브랜치 push.
+2. 순수 wheel 오프라인 설치 실측(`pip download --platform win_amd64 --only-binary=:all:`) —
+   특히 chromadb/onnxruntime/torch. 실패 시 백업안(sqlite-vec / GGUF 리랭커).
+3. Streamlit 실사용 점검(`streamlit run rag/app/main.py`), 하이브리드 파라미터 튜닝, OCR(Phase 3), 패키징.
+
+---
+
 ## 2026-07-13 — 2차 증분 구현: 인덱싱·하이브리드검색·리랭커·LLM·로그워크플로우·Streamlit (코드 완료, E2E 대기)
 
 ### 한 일 (VPN 서버에서 재개, HANDOFF §4 순서대로)

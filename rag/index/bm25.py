@@ -65,7 +65,7 @@ class BM25Index:
         results, scores = self._bm25.retrieve([q_tokens], corpus=self.ids, k=k)
         out = []
         for rank in range(len(results[0])):
-            out.append({"id": results[0][rank], "score": float(scores[0][rank]),
+            out.append({"id": str(results[0][rank]), "score": float(scores[0][rank]),
                         "rank": rank})
         return out
 

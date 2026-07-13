@@ -20,9 +20,11 @@ class Config:
     llm_fallback: str = _env("RAG_LLM_FALLBACK", "qwen3.5:2b")   # 경량 폴백
     embed_model: str = _env("RAG_EMBED", "bge-m3")               # 정품 bge-m3 (1024d) — 재반입 확정
     embed_dim: int = int(_env("RAG_EMBED_DIM", "1024"))
-    reranker_path: str = _env("RAG_RERANKER", "bge-reranker-v2-m3")  # 로컬 경로/모델명 (CPU)
+    reranker_path: str = _env("RAG_RERANKER", "BAAI/bge-reranker-v2-m3")  # HF repo id / 로컬경로 (CPU)
     ollama_host: str = _env("OLLAMA_HOST", "http://localhost:11434")
     num_ctx: int = int(_env("RAG_NUM_CTX", "4096"))
+    llm_timeout: float = float(_env("RAG_LLM_TIMEOUT", "600"))   # CPU 추론 여유(GPU는 짧아도 됨)
+    embed_timeout: float = float(_env("RAG_EMBED_TIMEOUT", "120"))
 
     # --- 청킹 (토큰 근사는 문자 기반; 실제 임베딩은 bge-m3 토크나이저) ---
     chunk_chars: int = int(_env("RAG_CHUNK_CHARS", "1200"))   # ~500-700 토큰 근사

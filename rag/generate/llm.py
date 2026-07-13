@@ -22,16 +22,17 @@ class LLMError(RuntimeError):
 
 class LLMClient:
     def __init__(self, model: str = None, fallback: str = None, host: str = None,
-                 num_ctx: int = None, timeout: float = 300.0):
+                 num_ctx: int = None, timeout: float = None):
         self.model = model or CONFIG.llm_model
         self.fallback = fallback or CONFIG.llm_fallback
         self.host = (host or CONFIG.ollama_host).rstrip("/")
         self.num_ctx = num_ctx or CONFIG.num_ctx
-        self.timeout = timeout
+        self.timeout = timeout or CONFIG.llm_timeout
 
     def _post(self, model: str, messages: list) -> str:
         payload = {
             "model": model, "messages": messages, "stream": False,
+            "keep_alive": "10m",   # 호출 간 모델 상주 유지(CPU 재적재 회피)
             "options": {"num_ctx": self.num_ctx, "temperature": 0.0},
         }
         data = json.dumps(payload).encode("utf-8")

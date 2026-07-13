@@ -23,6 +23,10 @@ models/
 samples/_generated/
 uploads/
 
+# 런타임 로그
+logs/
+*.log
+
 # OS/에디터
 .DS_Store
 Thumbs.db

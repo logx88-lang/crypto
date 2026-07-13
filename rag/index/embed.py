@@ -21,11 +21,11 @@ class EmbeddingClient:
     """Ollama 임베딩 래퍼. Ollama 미가동 시 embed() 호출에서만 실패한다(임포트는 안전)."""
 
     def __init__(self, model: str = None, host: str = None, dim: int = None,
-                 timeout: float = 120.0):
+                 timeout: float = None):
         self.model = model or CONFIG.embed_model
         self.host = (host or CONFIG.ollama_host).rstrip("/")
         self.dim = dim or CONFIG.embed_dim
-        self.timeout = timeout
+        self.timeout = timeout or CONFIG.embed_timeout
 
     # --- 내부 HTTP ---
     def _post(self, path: str, payload: dict) -> dict:
