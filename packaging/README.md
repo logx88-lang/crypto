@@ -30,7 +30,7 @@ Streamlit은 **웹 앱(서버 렌더링)** 이라 설치는 **서버 1대에만*
 ```
 crypto-rag-dist/
   rag/  tests/  samples/  smoke_test.py  requirements.txt   # 소스 + 잠금 목록
-  wheelhouse/win_amd64_py311/   # 순수 wheel (3.10/3.12 쓰면 해당 폴더도)
+  wheelhouse/win_amd64_py312/   # 순수 wheel (서버 A=Python 3.12.7 → py312. cp312 전 패키지 실측 확인)
   models/                       # (별도) Ollama blobs+manifests, 리랭커 가중치 — docs/model_transfer.md
   packaging/install.ps1 | install.bat | build_wheelhouse.sh | README.md
   docs/                         # model_transfer.md 등 가이드
@@ -58,7 +58,10 @@ crypto-rag-dist/
   로 CPU 빌드를 고정한다(PyPI 기본 torch도 Windows는 CPU지만 명시가 안전).
 - 3.10/3.11/3.12 는 ABI가 달라 **파이썬 마이너 버전별로 wheelhouse를 따로** 만든다(배포 PC 버전에 맞춰).
 
-### 순수/바이너리 wheel 가용성 검증 결과 (2026-07-13, win_amd64/cp311 개별 실측 `--no-deps`)
+### 순수/바이너리 wheel 가용성 검증 결과 (2026-07-13, win_amd64 개별 실측 `--no-deps`)
+
+> **cp311·cp312 둘 다 전 패키지 wheel 존재 확인**(서버 A=Python 3.12.7 → cp312 사용).
+> paddlepaddle 3.3.1·torch 2.13.0·onnxruntime·numpy·chroma-hnswlib 등 cp312-win_amd64 확보.
 
 **핵심 컴파일 패키지 전원 Windows wheel 제공 확인 → 오프라인 배포 실현 가능**:
 `chromadb 1.5.9(cp39-abi3)` · `chroma-hnswlib 0.7.6` · `onnxruntime 1.27.0` · `tokenizers 0.23.1(abi3)` ·

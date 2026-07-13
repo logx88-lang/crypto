@@ -20,7 +20,7 @@ if ($ver -notmatch '^3\.(10|11|12)$') {
 # --- wheelhouse 경로 (파이썬 버전에 맞춰 선택) ---
 $WheelDir = Join-Path $Root ("wheelhouse\win_amd64_py" + $ver.Replace(".",""))
 if (-not (Test-Path $WheelDir)) {
-    $WheelDir = Join-Path $Root "wheelhouse\win_amd64_py311"
+    $WheelDir = Join-Path $Root "wheelhouse\win_amd64_py312"
     Write-Warning "버전별 wheelhouse 없음 → $WheelDir 사용(호환 안 되면 해당 버전 wheelhouse 반입 필요)."
 }
 Write-Host "wheelhouse: $WheelDir"

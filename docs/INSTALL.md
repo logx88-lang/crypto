@@ -17,7 +17,9 @@
 반드시 Windows. `packaging/README.md` 참고.)
 
 ### 0-1. 사전 설치
-- **Python 3.11**(권장; A와 같은 마이너 버전) — 설치 시 "Add to PATH" 체크.
+- **Python 3.12** — 서버 A가 3.12.7 이므로 **반드시 3.12**로 빌드해야 wheel(cp312)이 맞는다.
+  설치 시 "Add to PATH" 체크. (`python --version` 이 3.12.x 인지 확인 후 진행)
+  · cp312 Windows wheel 전 패키지 존재 실측 완료(torch/paddlepaddle/onnxruntime 등).
 - **Ollama** (https://ollama.com) — 모델 내려받기용.
 - (선택) Git. 없으면 GitHub에서 리포 ZIP 다운로드.
 
@@ -31,7 +33,7 @@ git checkout claude/claude-md-docs-xtu1qe
 ### 0-3. wheelhouse 생성 (오프라인 pip 패키지)
 ```powershell
 .\packaging\build_wheelhouse.ps1        # kiwipiepy_model 사전빌드 + torch CPU + 나머지 자동
-# 완료 후 wheel 개수 출력. 결과: wheelhouse\win_amd64_py311\
+# 완료 후 wheel 개수 출력. 결과: wheelhouse\win_amd64_py312\  (Python 3.12로 실행 시)
 ```
 > A의 파이썬이 3.10/3.12면 그 버전 파이썬으로 이 스크립트를 각각 실행해 해당 wheelhouse도 생성.
 
@@ -73,7 +75,7 @@ C:\build\ocrtmp\Scripts\python -c "from paddleocr import PaddleOCR; PaddleOCR(us
 
 ### 1-1. 파이썬 버전 확인 (wheelhouse 태그와 일치해야 함)
 ```powershell
-python --version        # 예: 3.11.x  → wheelhouse\win_amd64_py311 과 일치
+python --version        # 3.12.x 여야 함 → wheelhouse\win_amd64_py312 와 일치
 ```
 
 ### 1-2. 소스 복사 + 오프라인 설치

@@ -8,7 +8,7 @@ cd /d "%~dp0.."
 
 for /f %%v in ('python -c "import sys;print('%%d%%d'%%sys.version_info[:2])"') do set PYTAG=%%v
 set WHEELDIR=wheelhouse\win_amd64_py%PYTAG%
-if not exist "%WHEELDIR%" set WHEELDIR=wheelhouse\win_amd64_py311
+if not exist "%WHEELDIR%" set WHEELDIR=wheelhouse\win_amd64_py312
 echo wheelhouse: %WHEELDIR%
 
 if not exist .venv python -m venv .venv
