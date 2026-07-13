@@ -43,6 +43,9 @@ class Config:
     rerank_top_n: int = 20   # 리랭커 입력 후보 수
     final_k: int = 5         # 최종 컨텍스트 청크 수
 
+    # --- 개선기록(비식별화 반출) ---
+    feedback_dir: str = _env("RAG_FEEDBACK_DIR", "data/feedback")
+
     # --- 경로 ---
     data_dir: str = _env("RAG_DATA_DIR", "data")          # 인덱싱 대상 문서 폴더
     chroma_dir: str = _env("RAG_CHROMA_DIR", "data/chroma")
