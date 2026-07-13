@@ -12,7 +12,8 @@ from ..config import CONFIG
 from .models import Element, ParsedDoc
 from .tables import table_to_markdown
 
-SUPPORTED_EXTS = {"xlsx", "docx", "pptx", "pdf", "txt"}
+SUPPORTED_EXTS = {"xlsx", "docx", "pptx", "pdf", "txt",
+                  "png", "jpg", "jpeg", "bmp", "tiff", "tif"}   # 이미지=OCR(§8)
 
 
 # ---------------------------------------------------------------------------
@@ -129,17 +130,43 @@ def parse_pptx(path: str) -> ParsedDoc:
 # ---------------------------------------------------------------------------
 # pdf
 # ---------------------------------------------------------------------------
-def parse_pdf(path: str) -> ParsedDoc:
+def parse_pdf(path: str, ocr_backend=None) -> ParsedDoc:
     import pdfplumber
+    from .ocr import ocr_image, get_ocr_backend
+    from ..config import CONFIG
+
+    backend = ocr_backend or get_ocr_backend()
+    # 스캔 페이지를 실제로 만났을 때만 백엔드 가용성 확인(정상 PDF는 paddle import 회피).
+    _ocr_state = {}
+    def _ocr_ready():
+        if "on" not in _ocr_state:
+            _ocr_state["on"] = CONFIG.ocr_enabled and backend.available()
+        return _ocr_state["on"]
+
     elements: list = []
     sample = []
-    scanned_pages = []
+    scanned_pages = []      # OCR 못한(비활성) 스캔 페이지
+    ocr_pages = []          # OCR로 텍스트 복원한 페이지
     with pdfplumber.open(path) as pdf:
         for idx, page in enumerate(pdf.pages, start=1):
             text = (page.extract_text() or "").strip()
             tables = page.extract_tables() or []
             if not text and not tables:
-                scanned_pages.append(idx)   # 스캔 PDF 가능성 → OCR(Phase 3)
+                # 스캔(이미지) 페이지 → OCR 라우팅(§3 pdf)
+                if _ocr_ready():
+                    try:
+                        pil = page.to_image(resolution=CONFIG.ocr_dpi).original
+                        otext = (ocr_image(pil, backend=backend) or "").strip()
+                    except Exception:
+                        otext = ""
+                    if otext:
+                        elements.append(Element("text", otext,
+                                                {"page_no": idx, "source": "ocr"}))
+                        ocr_pages.append(idx)
+                        if len(sample) < 5:
+                            sample.append(otext[:200])
+                        continue
+                scanned_pages.append(idx)
                 continue
             if text:
                 elements.append(Element("text", text, {"page_no": idx}))
@@ -154,9 +181,9 @@ def parse_pdf(path: str) -> ParsedDoc:
                     doc_type=_classify(title, "\n".join(sample)), ext="pdf",
                     elements=elements)
     if scanned_pages:
-        # 스캔 페이지 메모(구현 Phase 3 OCR 대상)
+        # OCR 비활성/미설치로 텍스트 못 뽑은 스캔 페이지 메모
         doc.elements.append(Element("text",
-                                    f"[OCR 필요 페이지: {scanned_pages}]",
+                                    f"[OCR 필요 페이지(백엔드 미설치): {scanned_pages}]",
                                     {"page_no": scanned_pages[0], "section": "_ocr_todo"}))
     return doc
 
@@ -176,9 +203,30 @@ def parse_txt(path: str) -> ParsedDoc:
 
 
 # ---------------------------------------------------------------------------
+# image (OCR — §8)
+# ---------------------------------------------------------------------------
+def parse_image(path: str, ocr_backend=None) -> ParsedDoc:
+    from .ocr import ocr_image
+    text = (ocr_image(path, backend=ocr_backend) or "").strip()
+    title = _title_from_name(path)
+    if text:
+        elements = [Element("text", text, {"section": "", "source": "ocr"})]
+        dtype = _classify(title, text[:400])
+    else:
+        # OCR 비활성/미설치/무텍스트 → 마커(인덱싱은 되되 검색가치 낮음 명시)
+        elements = [Element("text", "[OCR 텍스트 없음 또는 OCR 백엔드 미설치]",
+                            {"section": "_ocr_unavailable", "source": "ocr"})]
+        dtype = "general"
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+    return ParsedDoc(source_file=os.path.basename(path), doc_title=title,
+                     doc_type=dtype, ext=ext, elements=elements)
+
+
 _DISPATCH = {
     "xlsx": parse_xlsx, "docx": parse_docx, "pptx": parse_pptx,
     "pdf": parse_pdf, "txt": parse_txt,
+    "png": parse_image, "jpg": parse_image, "jpeg": parse_image,
+    "bmp": parse_image, "tiff": parse_image, "tif": parse_image,
 }
 
 

@@ -24,3 +24,10 @@ transformers==5.13.1
 
 # --- UI ---
 streamlit==1.59.1
+
+# --- OCR (Phase 3, 이미지·스캔PDF 인제스천) ---
+# 대용량. 이미지 문서가 없으면 생략 가능(RAG_OCR=0). Windows wheel 전원 확인.
+# ⚠️ 일부 CPU에서 paddlepaddle 3.x oneDNN 런타임 버그 → 코드가 enable_mkldnn=False로 회피.
+paddlepaddle==3.3.1
+paddleocr==3.7.0
+

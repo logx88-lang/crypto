@@ -31,6 +31,11 @@ class Config:
     chunk_overlap: int = int(_env("RAG_CHUNK_OVERLAP", "180"))  # ~15%
     table_max_chars: int = int(_env("RAG_TABLE_MAX_CHARS", "2400"))  # 표 청크 상한(초과 시 행 분할)
 
+    # --- OCR (인제스천 시점, Phase 3) ---
+    ocr_enabled: bool = _env("RAG_OCR", "1") not in ("0", "false", "False")
+    ocr_lang: str = _env("RAG_OCR_LANG", "korean")   # PaddleOCR: 'korean'=한/영 동시
+    ocr_dpi: int = int(_env("RAG_OCR_DPI", "200"))   # 스캔 PDF 페이지 렌더 해상도
+
     # --- 검색 ---
     top_k_dense: int = 20
     top_k_bm25: int = 20

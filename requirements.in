@@ -28,6 +28,8 @@ python-pptx          # pptx (Pillow 동반)
 pdfplumber           # pdf (표+텍스트, 순수 파이썬/MIT, pdfminer.six 동반) — 프로토콜 명세 주 포맷
 charset-normalizer   # txt 인코딩 자동 판별 (EUC-KR/CP949/UTF-8)
 
-# --- OCR (Phase 3, 도입 확정 시 활성화) ---
-# paddleocr
-# paddlepaddle       # Windows wheel 대용량 ; 모델 가중치 별도 반입
+# --- OCR (Phase 3, 구현 완료 — 이미지·스캔PDF 인제스천) ---
+paddleocr            # 3.7.0 검증. 3.x predict() API, rec_texts 추출
+paddlepaddle         # 3.3.1 검증(CPU). Windows wheel 있음(대용량). 모델 가중치는 USB 반입
+#   ⚠️ 일부 CPU서 oneDNN/PIR 런타임 버그 → 코드가 enable_mkldnn=False 로 회피(실측)
+#   opencv/shapely/pyclipper/scikit-image/lmdb/rapidfuzz 등 동반(전부 win wheel 확인)

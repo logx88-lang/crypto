@@ -78,10 +78,22 @@ reranker = CrossEncoder(r"C:\models\bge-reranker-v2-m3")  # 로컬 경로
 
 ---
 
-## 3. OCR 모델 (Phase 3, 도입 확정 시)
+## 3. OCR 모델 (PaddleOCR 3.x — 구현 완료)
 
-- PaddleOCR(kor+eng): 온라인 PC에서 인식/검출 모델 파일을 받아 USB로 이전, 오프라인에서 로컬 경로 지정.
-- 인제스천 시점에만 동작하므로 질의 VRAM과 무경합.
+- PaddleOCR(`lang='korean'` = 한/영 동시): 이미지·스캔PDF 인제스천 시점에만 동작(질의 VRAM 무경합).
+- **모델 자동 다운로드 위치**: 최초 실행 시 온라인에서 검출/인식/방향 모델을 받아
+  `~/.paddlex/official_models/`(Linux/Win 홈) 에 저장한다. **오프라인 이전**: 온라인 PC에서 한 번
+  실행(아래)해 이 폴더를 채운 뒤, 폴더째 USB로 오프라인 PC 동일 경로에 복사.
+  ```bash
+  # 온라인 PC에서 모델 시드(검출+인식+방향 3종 내려받음)
+  python -c "from paddleocr import PaddleOCR; \
+    PaddleOCR(use_textline_orientation=True, lang='korean', enable_mkldnn=False).predict('any.png')"
+  # → ~/.paddlex/official_models/  폴더를 USB로 오프라인 PC 홈 동일 경로에 복사
+  ```
+- **⚠️ 런타임 주의(실측)**: paddlepaddle 3.x 는 일부 CPU에서 oneDNN/PIR 실행기 버그
+  (`ConvertPirAttribute2RuntimeAttribute not support`)로 추론이 실패한다. 애플리케이션은
+  `enable_mkldnn=False` 로 표준 CPU 커널을 써서 이를 회피한다(코드 기본값). GPU 사용 시 무관.
+- OCR 불필요(이미지 문서 없음) 시 `RAG_OCR=0` 으로 비활성화하면 paddle 미설치로도 동작.
 
 ---
 

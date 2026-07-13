@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-07-13 (4) — UI 실사용 점검 + OCR(Phase 3) 구현·실검증 ✅
+
+### UI 실사용 점검 (Streamlit, Playwright 헤드리스)
+- `streamlit run rag/app/main.py` 기동 후 브라우저 자동화로 **7/7 PASS**: 타이틀·3탭(문서QA/로그분석/관리)
+  렌더, **관리탭 증분 인덱싱 버튼 실동작**(완료 표시), **로그 업로드→hex 감지→15프레임 파싱→
+  프로토콜 명세 확인(필수) 게이트** UX, JS 에러 0. 스크린샷 확인.
+- QA 파이프라인은 smoke로 이미 E2E 검증됨 → 브라우저 내 느린 CPU LLM 재실행은 생략.
+- 점검용 Playwright/chromium은 별도 임시 venv(배포 `.venv` 무오염).
+
+### OCR (Phase 3) — 구현 + 실 PaddleOCR 검증
+- **`rag/ingest/ocr.py`**: `OCRBackend` 추상화 + `PaddleOCRBackend`(지연 로드, 주입 가능).
+  미설치/`RAG_OCR=0` 시 `available()=False` → 파서는 마커만 남기고 진행(결정적 코어 무영향).
+- **파서 통합**: 이미지 확장자(png/jpg/jpeg/bmp/tiff) `SUPPORTED_EXTS`+dispatch에 추가, `parse_image`
+  신설(OCR→text element, source=ocr). `parse_pdf` 스캔페이지(텍스트 없음)를 렌더→OCR 라우팅
+  (지연 평가 — 정상 PDF는 paddle import 안 함, 실측 0.25s).
+- **테스트** `tests/test_ocr.py` 6/6(가짜 백엔드, paddle 불필요). 전체 **30/30**(core12+retrieval12+ocr6).
+- **실 PaddleOCR E2E**: `system_diagram.png` → 한/영 정확 인식(XM-200·코인 컨트롤러·RS-485·TG-15·
+  센서게이트웨이) → 청킹. Windows wheel 전원 확인(paddlepaddle 3.3.1·paddleocr 3.7.0·opencv·shapely 등).
+
+### OCR에서 실측으로 잡은 이슈
+- **PaddleOCR 3.x API 변경**: 2.x `ocr(img,cls=True)` → 3.x `predict(img)`+`rec_texts`. 백엔드가
+  3.x 우선·2.x 폴백 양쪽 지원(생성 인자도 `use_textline_orientation`/`use_angle_cls` 순차 폴백).
+- **paddlepaddle 3.x oneDNN 런타임 버그**(일부 CPU): `ConvertPirAttribute2RuntimeAttribute not
+  support` → 추론 실패. **`enable_mkldnn=False`** 로 표준 CPU 커널 우회(코드 기본값). GPU 무관.
+- 오프라인 모델 이전: 최초 실행이 `~/.paddlex/official_models/` 채움 → USB 반입(`docs/model_transfer.md` §3).
+
+### 다음 액션
+- (사용자·Windows) wheelhouse 생성 시 OCR 스택 포함(`requirements.txt`에 반영됨) → USB 배포.
+- (선택) 하이브리드 파라미터 튜닝, 스캔 PDF 샘플로 PDF-OCR 경로 추가 검증.
+
+---
+
 ## 2026-07-13 (3) — 폐쇄망 오프라인 패키징: 순수 wheel 실측 + 설치 스크립트 ✅
 
 ### 한 일
