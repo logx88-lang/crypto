@@ -17,9 +17,15 @@
 반드시 Windows. `packaging/README.md` 참고.)
 
 ### 0-1. 사전 설치
-- **Python 3.12** — 서버 A가 3.12.7 이므로 **반드시 3.12**로 빌드해야 wheel(cp312)이 맞는다.
-  설치 시 "Add to PATH" 체크. (`python --version` 이 3.12.x 인지 확인 후 진행)
-  · cp312 Windows wheel 전 패키지 존재 실측 완료(torch/paddlepaddle/onnxruntime 등).
+- **Python 3.12** — 서버 A가 3.12.7 이므로 **반드시 3.12(cp312)** 로 빌드해야 wheel이 맞는다.
+  cp312 Windows wheel 전 패키지 존재 실측 완료(torch/paddlepaddle/onnxruntime 등).
+- **다중 파이썬 주의**: `python`/`py` 기본값이 3.12가 아닐 수 있다(예: 3.10/3.13 혼재). 먼저 확인:
+  ```powershell
+  py -3.12 --version      # → Python 3.12.x 나와야 함(안 나오면 3.12 설치/복구 필요)
+  py -0                   # 설치된 파이썬 목록
+  ```
+  `build_wheelhouse.ps1`·`install.ps1` 은 **`py -3.12` 를 자동 선택**하므로 그대로 실행하면 된다.
+  (수동으로 3.12 격리 환경을 쓰려면: `py -3.12 -m venv .b; .\.b\Scripts\Activate.ps1`)
 - **Ollama** (https://ollama.com) — 모델 내려받기용.
 - (선택) Git. 없으면 GitHub에서 리포 ZIP 다운로드.
 

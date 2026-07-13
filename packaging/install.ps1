@@ -10,11 +10,14 @@ $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
 # --- Python 확인 (3.10~3.12) ---
-$py = "python"
+# Python 3.12 우선 해석(다중 파이썬 환경 대응). wheelhouse(cp312)와 일치시켜야 함.
+$py = $null
+try { $exe = (& py -3.12 -c "import sys;print(sys.executable)" 2>$null); if ($exe) { $py = $exe } } catch {}
+if (-not $py) { $py = "python" }        # 3.12 런처 없으면 기본 python
 $ver = & $py -c "import sys;print('%d.%d'%sys.version_info[:2])"
-Write-Host "Python $ver 감지"
-if ($ver -notmatch '^3\.(10|11|12)$') {
-    Write-Warning "Python 3.10~3.12 권장(현재 $ver). wheelhouse 태그(cp3xx)와 일치해야 합니다."
+Write-Host "Python: $py ($ver)"
+if ($ver -ne "3.12") {
+    Write-Warning "현재 $ver — 서버는 3.12여야 wheelhouse(cp312)와 맞습니다. 'py -3.12' 사용 권장."
 }
 
 # --- wheelhouse 경로 (파이썬 버전에 맞춰 선택) ---

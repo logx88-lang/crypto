@@ -11,24 +11,36 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
-$ver = & python -c "import sys;print('%d.%d'%sys.version_info[:2])"
+# --- Python 3.12 인터프리터 해석 (다중 파이썬 환경 대응) ------------------
+# 서버 A = Python 3.12.7 → wheelhouse 도 반드시 3.12(cp312)로 빌드해야 한다.
+$PY = $null
+try { $exe = (& py -3.12 -c "import sys;print(sys.executable)" 2>$null); if ($exe) { $PY = $exe } } catch {}
+if (-not $PY) {
+    try { $v = (& python -c "import sys;print('%d.%d'%sys.version_info[:2])" 2>$null)
+          if ($v -eq "3.12") { $PY = (& python -c "import sys;print(sys.executable)") } } catch {}
+}
+if (-not $PY) {
+    throw "Python 3.12 를 찾을 수 없습니다. 3.12 설치 후: 이 PC에서 'py -3.12 --version' 이 3.12.x 를 내야 합니다."
+}
+$ver = & $PY -c "import sys;print('%d.%d'%sys.version_info[:2])"
 $tag = $ver.Replace(".","")
 $WD = Join-Path $Root "wheelhouse\win_amd64_py$tag"
 New-Item -ItemType Directory -Force -Path $WD | Out-Null
-Write-Host "wheelhouse: $WD  (Python $ver)"
+Write-Host "Python: $PY ($ver)"
+Write-Host "wheelhouse: $WD"
 
 # 1) kiwipiepy_model 은 sdist-only → py3-none-any 유니버설 wheel로 미리 빌드(순수 데이터, 컴파일 불필요)
 Write-Host "[1/3] kiwipiepy_model wheel 빌드"
-& python -m pip wheel kiwipiepy_model==0.23.0 --no-deps -w $WD
+& $PY -m pip wheel kiwipiepy_model==0.23.0 --no-deps -w $WD
 
 # 2) torch 는 CPU wheel 고정 (질의 GPU는 LLM 전용)
 Write-Host "[2/3] torch (CPU) 다운로드"
-& python -m pip download torch==2.13.0 --only-binary=:all: `
+& $PY -m pip download torch==2.13.0 --only-binary=:all: `
     --index-url https://download.pytorch.org/whl/cpu -d $WD
 
 # 3) 나머지 전부 (네이티브 → 마커 정상, uvloop 자동 제외)
 Write-Host "[3/3] 나머지 의존성 다운로드"
-& python -m pip download -r requirements.txt --only-binary=:all: `
+& $PY -m pip download -r requirements.txt --only-binary=:all: `
     --find-links $WD -d $WD
 
 Write-Host ""
