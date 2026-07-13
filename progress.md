@@ -5,6 +5,46 @@
 
 ---
 
+## 2026-07-13 — 2차 증분 구현: 인덱싱·하이브리드검색·리랭커·LLM·로그워크플로우·Streamlit (코드 완료, E2E 대기)
+
+### 한 일 (VPN 서버에서 재개, HANDOFF §4 순서대로)
+- **환경**: 새 venv + 결정적 코어 의존성 설치 → 베이스라인 `tests/test_core.py` **12/12 통과** 재확인.
+- **`rag/index/`**: `embed.py`(Ollama `/api/embed` urllib 래퍼, 차원검증=nomic 오라벨 조기적발) ·
+  `store.py`(ChromaDB 래퍼, upsert/query/get/delete/all_documents, 코사인, 메타 sanitize) ·
+  `bm25.py`(kiwipiepy 형태소+bm25s, 정규식 폴백 토크나이저, save/load) ·
+  `indexer.py`(**증분 매니페스트** diff + parse→chunk→embed→store, BM25는 Chroma 코퍼스 전체 재구축).
+- **`rag/retrieve/`**: `hybrid.py`(**RRF 순수함수** + dense/BM25 융합, BM25전용 후보 store.get 보강,
+  where 사후필터) · `rerank.py`(bge-reranker-v2-m3 CrossEncoder, **CPU**).
+- **`rag/generate/`**: `prompt.py`(공식체 시스템프롬프트·출처표기·근거없으면 "모른다", 순수) ·
+  `llm.py`(Ollama `/api/chat` urllib, 폴백 재시도, `<think>` 제거) · `answer.py`(RAGPipeline + build_pipeline).
+- **`rag/logs/workflow.py`**: 통신로그 분석 — 종류판별→파싱→**명세 후보검색(doc_type=protocol_spec)**→
+  UI 확인단계용 조각→확정명세 기반 LLM 해석. 컨텍스트 초과 대비 프레임 요약 상한(§7-3).
+- **`rag/app/main.py`**: Streamlit 3탭(문서QA / 로그분석[업로드+**필수 확인단계**] / 관리[증분·전체 인덱싱]).
+- **테스트**: `tests/test_retrieval.py` 신설 — RRF·증분매니페스트·하이브리드·인덱서(인메모리 페이크)·
+  프롬프트·no-context 단락·로그워크플로우 **12/12 통과** (전부 Ollama/Chroma/torch 불필요).
+- **`smoke_test.py`**: B단계 E2E(임베딩차원→인덱싱→검색→리랭킹→LLM답변→로그해석) 스크립트 준비.
+
+### 의사결정 (근거)
+- **Ollama 격리 = 지연 임포트 + 의존성 주입**: 순수 로직(RRF·매니페스트·프롬프트)을 무거운 의존성 없이
+  지금 단위테스트. 임베딩/LLM/리랭커는 얇은 래퍼로 분리. → 코드 24/24 검증을 Ollama 없이 달성.
+- **HTTP는 urllib(표준)**: ollama 파이썬 클라이언트 버전 편차/추가 의존성 회피, `ollama_host` 존중.
+- **BM25 증분 = 전체 재구축**: 규모 ~100문서라 저렴, incremental add 복잡도·불일치 위험 회피.
+  코퍼스 단일 진실원천 = Chroma(문서 저장) → 매 인덱싱마다 `all_documents()`로 재빌드.
+- **BM25 where 미지원 → 사후 메타필터**: dense는 네이티브 where, sparse 전용 후보는 조립 후 필터.
+
+### 환경 실측 / 제약
+- 이 서버: **CPU 전용(GPU 없음)**, 4코어/15GB RAM, Ollama 미설치. E2E는 정합성 검증 목적(속도 아님).
+- CPU에서 qwen3:8b 추론은 전코어 부하 → **같은 VPS의 트레이딩 봇과 자원 경합 우려**(B단계 판단 필요).
+
+### 다음 액션
+1. **(B단계, 사용자 승인 대기)** 2차 의존성 설치(chromadb/kiwipiepy/bm25s/ollama/sentence-transformers/
+   torch-CPU) + Ollama 설치 + `ollama pull bge-m3 qwen3:8b` → `python3 smoke_test.py` E2E.
+   ⚠️ 트레이딩 봇 자원경합 → 실행 시점·강도 사용자 확인 후 진행.
+2. 순수 wheel 오프라인 설치 실측(`pip download --platform win_amd64 --only-binary=:all:`).
+3. E2E 통과 후: 하이브리드 파라미터 튜닝, OCR(Phase 3), 오프라인 패키징(install.bat/wheelhouse).
+
+---
+
 ## 2026-07-09 (7) — 다른 머신(VPN 서버) 이어가기용 인수인계 문서
 
 ### 한 일

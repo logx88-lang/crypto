@@ -9,9 +9,12 @@ env/
 .claude/hooks/.log_state.json
 
 # 로컬 인덱스/데이터 산출물 (오프라인 배포물·대용량)
+data/
 chroma/
 *.chroma
 index/*.bin
+*_bm25s/
+*_ids.json
 wheelhouse/
 models/
 *.gguf
