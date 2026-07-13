@@ -150,10 +150,11 @@ $env:RAG_EMBED="bge-m3"
 - 결과 `rag-client.exe` 자체는 오프라인 동작. Win11 은 WebView2 내장(구형 Windows면 런타임 반입).
 
 ### 2-B. 각 개발 PC 배포
-1. `rag-client.exe` + `server.txt` 를 B PC 같은 폴더에 복사.
-2. `server.txt` 를 A 서버 주소로 수정(한 줄): `http://192.168.0.10:8501` (1-6 출력 주소).
-3. **`rag-client.exe` 더블클릭 → 독립 창으로 앱 실행.** 바탕화면 바로가기+아이콘 지정 시 완전한 앱 형태.
-4. 서버 IP가 바뀌면 **server.txt 만 수정**(재빌드 불필요). 연결 실패 창이 뜨면 서버 실행/방화벽/주소 확인.
+서버 주소가 **고정(`http://192.168.155.89:8501`)** 으로 하드코딩돼 있어 **exe 하나만** 배포하면 된다.
+1. `rag-client.exe` 를 B PC에 복사.
+2. **더블클릭 → 독립 창으로 앱 실행.** 바탕화면 바로가기+아이콘 지정 시 완전한 앱 형태.
+3. (주소 변경 시에만) exe 옆에 `server.txt` 한 줄 두거나 DEFAULT_URL 수정 후 재빌드.
+   연결 실패 창이 뜨면 서버 실행/방화벽/사내망 확인.
 
 > 무빌드 대안: `packaging\open_client.bat`(Edge 앱모드 `--app`)도 주소창 없는 창을 띄운다.
 > 자세한 내용은 `packaging/client/README.md`.

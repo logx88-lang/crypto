@@ -20,12 +20,9 @@ python -m venv .build
     --collect-all webview `
     rag_client.py
 
-# server.txt 예시를 dist 에 함께 배치
-if (-not (Test-Path .\dist\server.txt)) {
-    Copy-Item .\server.txt.example .\dist\server.txt
-}
-
 Write-Host ""
 Write-Host "빌드 완료: $Here\dist\rag-client.exe"
-Write-Host "배포: dist\rag-client.exe + dist\server.txt (서버주소 기입) 를 각 개발 PC에 복사."
-Write-Host "  · 오프라인 배포 시: 이 exe 는 인터넷 불필요. Win11 은 WebView2 내장(구형 Windows면 런타임 반입)."
+Write-Host "서버 주소는 코드에 하드코딩됨(기본 http://192.168.155.89:8501) → server.txt 불필요."
+Write-Host "배포: dist\rag-client.exe **한 개만** 각 개발 PC에 복사 → 더블클릭."
+Write-Host "  · 주소가 바뀔 때만 exe 옆에 server.txt(한 줄) 두면 그 값으로 덮어씀(재빌드 불필요)."
+Write-Host "  · 오프라인 동작. Win11 은 WebView2 내장(구형 Windows면 런타임 반입)."

@@ -4,8 +4,8 @@ REM 설치 불필요. 서버(업무 PC A)의 RAG 웹 UI를 브라우저로 연�
 REM
 REM 배포 방법: 아래 SERVER 를 A 서버 주소로 바꾼 뒤, 이 .bat 를 각 개발 PC 바탕화면에 복사.
 
-REM ↓↓↓ 업무 PC A(서버) 주소로 수정 (start_server.ps1 이 출력한 주소) ↓↓↓
-set SERVER=http://192.168.0.10:8501
+REM ↓↓↓ 업무 PC A(서버) 고정 주소 ↓↓↓
+set SERVER=http://192.168.155.89:8501
 
 REM 기본 브라우저로 열기
 start "" "%SERVER%"

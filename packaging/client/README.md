@@ -11,20 +11,17 @@ Windows 내장 **WebView2**(Edge Chromium 엔진)를 사용하고, 배포물은 
 - WebView2 런타임: Windows 11 기본 내장. (구형 Windows면 MS WebView2 Evergreen 런타임을 별도 반입)
 
 ## 배포 (각 개발 PC B-1/B-2/…)
-1. `dist\rag-client.exe` 와 `dist\server.txt` 를 B PC에 복사(같은 폴더).
-2. `server.txt` 를 A 서버 주소로 수정 (한 줄):
-   ```
-   http://192.168.0.10:8501
-   ```
-3. **`rag-client.exe` 더블클릭 → 독립 창으로 앱 실행.** (설치 불필요)
+서버 주소가 **고정(`http://192.168.155.89:8501`)** 으로 코드에 하드코딩돼 있어 **exe 하나만** 배포하면 된다.
+1. `dist\rag-client.exe` 를 B PC에 복사.
+2. **더블클릭 → 독립 창으로 앱 실행.** (설치·설정 불필요)
    - 바탕화면 바로가기를 만들고 아이콘을 지정하면 완전한 앱 형태.
 
-## 서버 주소 지정 우선순위
+## 서버 주소 지정 우선순위 (바뀔 때만 활용)
 1. 환경변수 `RAG_SERVER`
-2. exe 옆 `server.txt`
-3. 코드 기본값(`rag_client.py` DEFAULT_URL)
+2. exe 옆 `server.txt` (한 줄)
+3. 코드 기본값 `http://192.168.155.89:8501` (`rag_client.py` DEFAULT_URL)
 
-→ 서버 IP가 바뀌어도 **server.txt 만 수정**, 재빌드 불필요.
+→ 평소엔 3번(하드코딩)으로 충분. IP가 바뀌면 exe 옆에 `server.txt` 한 줄만 두거나 DEFAULT_URL 수정 후 재빌드.
 
 ## 연결 실패 시
 앱이 "서버에 연결할 수 없습니다" 창을 띄운다. 확인:

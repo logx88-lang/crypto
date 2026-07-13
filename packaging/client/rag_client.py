@@ -15,7 +15,7 @@ import urllib.request
 
 import webview
 
-DEFAULT_URL = "http://192.168.0.10:8501"   # 배포 전 A 서버 주소로 바꾸거나 server.txt 사용
+DEFAULT_URL = "http://192.168.155.89:8501"   # 고정 서버 주소(하드코딩). server.txt 없이 동작.
 WINDOW_TITLE = "사내 지식 RAG"
 
 
