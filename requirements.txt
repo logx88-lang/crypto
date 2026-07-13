@@ -1,0 +1,26 @@
+# 잠금(pinned) 매니페스트 — 2026-07-13 이 서버(리눅스)에서 검증된 버전.
+# 전부 win_amd64 wheel 존재 확인(개별 --no-deps 실측). 오프라인 설치:
+#   pip install --no-index --find-links wheelhouse/win_amd64_pyXY -r requirements.txt
+# wheelhouse 생성은 packaging/README.md (Windows에서 빌드).
+
+# --- 문서 파서 (결정적 코어) ---
+openpyxl==3.1.5
+python-docx==1.2.0
+python-pptx==1.0.2
+pdfplumber==0.11.10
+charset-normalizer==3.4.9
+
+# --- 인덱싱/검색 ---
+chromadb==1.5.9
+kiwipiepy==0.23.2
+kiwipiepy_model==0.23.0     # ⚠️ sdist-only → pip wheel 로 미리 빌드해 wheelhouse에 포함(README §1)
+bm25s==0.3.9
+ollama==0.6.2
+
+# --- 리랭커 (CPU) ---
+torch==2.13.0               # Windows PyPI wheel=CPU 빌드. (개발서버 리눅스는 2.13.0+cpu)
+sentence-transformers==5.6.0
+transformers==5.13.1
+
+# --- UI ---
+streamlit==1.59.1

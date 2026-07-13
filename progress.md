@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-07-13 (3) — 폐쇄망 오프라인 패키징: 순수 wheel 실측 + 설치 스크립트 ✅
+
+### 한 일
+- `requirements.txt`(고정 잠금, 검증버전) · `packaging/`(`build_wheelhouse.ps1`·`install.ps1`·
+  `install.bat`·`README.md`) 작성. `.gitignore`에 wheelhouse/data/logs 반영.
+
+### 실측으로 확정된 배포 사실 (구현 첫 검증항목 — design.md §10)
+1. **핵심 컴파일 패키지 전원 Windows(win_amd64/cp311) wheel 제공** → 오프라인 배포 실현 가능.
+   `chromadb 1.5.9(cp39-abi3)`·`chroma-hnswlib 0.7.6`·`onnxruntime 1.27.0`·`tokenizers 0.23.1`·
+   `grpcio`·`pydantic-core`·`numpy`·`torch 2.13.0`·`kiwipiepy 0.23.2` 등 (개별 `--no-deps` 실측).
+2. **함정 A — `kiwipiepy_model` 은 sdist-only**(wheel 없음, 84MB 순수데이터). `--only-binary` 설치가
+   막힘 → `pip wheel` 로 **`py3-none-any` 유니버설 wheel 미리 빌드**해 wheelhouse에 포함(컴파일 불필요).
+   빌드 스크립트가 자동 처리.
+3. **함정 B — wheelhouse는 반드시 Windows에서 빌드**. 리눅스 `pip download --platform win_amd64` 는
+   환경마커(`sys_platform`)를 호스트 기준 평가 → `chromadb`→`uvicorn[standard]`→**`uvloop`(Unix전용)**
+   때문에 ResolutionImpossible. Windows 네이티브 pip은 마커 정상 평가(uvloop 자동 제외). 실측으로 확인.
+4. **torch = CPU wheel**(`--index-url .../whl/cpu`). 리랭커 `BAAI/bge-reranker-v2-m3`(~2.2GB)는
+   pip 대상 아님 → HF snapshot_download 후 USB 반입, 로컬경로 지정(`RAG_RERANKER`).
+
+### 다음 액션
+1. (사용자) 온라인 **Windows** PC에서 `build_wheelhouse.ps1` 실행 → USB로 배포 PC 반입 → `install.ps1`.
+2. 배포 PC 파이썬 3.10/3.12 면 해당 버전으로 wheelhouse 각각 생성.
+3. (선택) Streamlit 실사용 점검, 하이브리드 파라미터 튜닝, OCR(Phase 3).
+
+---
+
 ## 2026-07-13 (2) — B단계 E2E 검증 완료 (실 Ollama, CPU 서버) ✅
 
 ### 환경 구축 (VPN 서버, root 없이)
