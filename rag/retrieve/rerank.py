@@ -20,6 +20,13 @@ class Reranker:
             self._model = CrossEncoder(self.model_path, device=self.device)
         return self._model
 
+    def scores(self, query: str, texts: list) -> list:
+        """(query, text) 쌍별 관련도 점수 리스트(정렬·절단 없음). 평가/캐시용."""
+        if not texts:
+            return []
+        model = self._ensure()
+        return [float(s) for s in model.predict([(query, t) for t in texts])]
+
     def rerank(self, query: str, candidates: list, final_k: int = None) -> list:
         """[{document, ...}] 후보를 (query, document) 관련도로 재정렬 → 상위 final_k.
 
