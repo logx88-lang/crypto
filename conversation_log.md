@@ -1208,3 +1208,85 @@ MVP의 **결정적 코어**를 완성해서 커밋·push 했습니다. 이 환�
 ---
 
 계속해서 **2차 증분**을 진행할까요? 제안 순서는 (1) BM25+RRF 하이브리드 검색(여기서 테스트 가능) → (2) Ollama 임베딩/ChromaDB 연동 + 리랭커 → (3) LLM 답변 생성 → (4) Streamlit UI 입니다. 아니면 먼저 지금까지의 코어를 사용자 PC에서 돌려보시겠어요? 원하시는 방향을 알려주세요.
+
+### 사용자 · 2026-07-13T01:29:06.285Z
+
+지금까지 프로젝트 진행 한것을 vpn 서버에서(LLM 설치 가능한)이어서 진행하려고해.  프로젝트 이어서 진행할 수 있도록 정리 자료를 만들어줘
+
+### 어시스턴트 · 2026-07-13T01:29:38.793Z
+
+VPN 서버(Ollama 설치 가능)에서 이어서 진행할 수 있도록 **인수인계(handoff) 문서**를 저장소에 만들겠습니다. 클론하면 바로 따라 할 수 있게 환경 세팅·모델 준비·남은 작업·재개 방법을 담습니다.
+
+### 어시스턴트 · 2026-07-13T01:30:43.942Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-13T01:30:50.771Z
+
+Adding a pointer to the handoff doc in CLAUDE.md and logging the transition, then committing.
+
+### 어시스턴트 · 2026-07-13T01:30:54.789Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-13T01:31:06.284Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-13T01:31:13.705Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-13T01:31:34.354Z
+
+인수인계 문서를 만들어 `claude/claude-md-docs-xtu1qe` 브랜치에 커밋·push 했습니다. VPN 서버에서 저장소를 클론하면 바로 이어서 진행할 수 있습니다.
+
+## 만든 것: `docs/HANDOFF.md`
+
+핵심만 담았고, 새 머신에서 순서대로 따라 하면 됩니다:
+
+1. **30초 요약** — 지금 어디까지 왔는지 (설계 확정 → 샘플 완료 → MVP 1차 코어 완료·테스트 12/12 → 2차 증분 대기)
+2. **저장소 가져오기** — 클론 + `claude/claude-md-docs-xtu1qe` 체크아웃 + 테스트 실행
+3. **환경 세팅** — 파이썬 venv, 결정적 코어 의존성, 2차 증분 의존성, **Ollama 설치 + `ollama pull bge-m3`(1024d 정품)/`qwen3:8b`**, 임베딩 차원 스모크 체크
+4. **코드 지도** — `rag/ingest`·`rag/logs` 구조와 재사용할 핵심 인터페이스(`parse_file`/`chunk_document`/`analyze_text_log`)
+5. **남은 작업(2차 증분)** — `index`/`retrieve`/`generate`/`app` 각 모듈의 **계약과 권장 순서**(RRF부터 → 임베딩/ChromaDB/BM25 → 리랭커 → LLM → Streamlit)
+6. **재개 시 기억할 결정/제약** — 재논의 없이 바로 이어가도록 요약
+7. **작업 규약** — progress.md 갱신·push, 대화 로그 훅, 브랜치 규칙
+
+## VPN 서버에서 좋은 점 (문서에도 명시)
+
+- 인터넷/LLM 설치가 되므로 **`ollama pull bge-m3`로 1024d 정품 임베딩을 바로 사용** → 배포 PC의 nomic 오라벨 이슈를 우회하고 2차 증분을 **실제 E2E로 검증**할 수 있습니다.
+- 새 서버의 LLM 태그가 다르면 코드 수정 없이 `RAG_LLM=qwen3:8b` / `RAG_EMBED=bge-m3` 환경변수로 덮어쓰면 됩니다(`rag/config.py`가 env override 지원).
+
+## 참고
+
+- 재개용 정본 문서 경로: 설계 `docs/design.md`, 진행로그 `progress.md`, 규약 `CLAUDE.md`, 모델 이전 `docs/model_transfer.md`, 샘플 요약 `samples/MANIFEST.md`, 남은 질문 `docs/open_questions.md`.
+- 새 서버에서 Claude Code로 이 저장소를 열면, `docs/HANDOFF.md`를 먼저 읽게 하시면 컨텍스트가 그대로 이어집니다. (대화 자동 로깅 훅도 `.claude/`에 포함되어 함께 따라갑니다.)
+
+VPN 서버에서 잘 이어지길 바랍니다. 막히는 부분 있으면 알려주세요.
+
+### 사용자 · 2026-07-13T02:34:23.520Z
+
+프로젝트 진행하던 깃 주소 알려줘
+
+### 어시스턴트 · 2026-07-13T02:34:32.047Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-13T02:34:43.792Z
+
+프로젝트를 진행하던 저장소는 **`logx88-lang/crypto`** 입니다.
+
+- **GitHub 저장소**: `https://github.com/logx88-lang/crypto`
+- **개발 브랜치**: `claude/claude-md-docs-xtu1qe` ← 모든 작업(설계·샘플·MVP 코어·HANDOFF)이 여기 있습니다
+- **기본 브랜치**: `main`
+
+VPN 서버에서 이렇게 이어받으시면 됩니다:
+```bash
+git clone https://github.com/logx88-lang/crypto.git
+cd crypto
+git checkout claude/claude-md-docs-xtu1qe
+```
+그다음 `docs/HANDOFF.md`부터 읽고 환경 세팅을 진행하시면 됩니다.
+
+> 참고: 위에 보이는 `http://127.0.0.1:41729/...` 는 이 실행 환경의 내부 프록시 주소라서 외부에서는 접속되지 않습니다. 실제 주소는 위의 GitHub URL입니다. (비공개 저장소라면 해당 계정/조직 접근 권한이 있어야 클론됩니다.)
