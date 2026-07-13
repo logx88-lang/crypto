@@ -20,7 +20,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 현재 상태
 
-**설계 단계.** 아직 파이프라인/파서/UI 코드는 없다. 존재하는 것:
+**MVP 1차(결정적 코어) 완료 · 2차 증분(Ollama 연동) 대기.** 주요 문서:
+- `docs/HANDOFF.md` — **다른 머신에서 이어서 진행하기 위한 인수인계**(환경세팅·모델준비·남은작업). 재개 시 먼저 읽기.
 - `docs/design.md` — 상세 설계서(스펙 11항목 대응). **작업 전 반드시 숙지.**
 - `docs/open_questions.md` — 사용자 답변 대기 중인 확인 질문.
 - `progress.md` — 진행/지식/의사결정 로그. **변경마다 갱신 + push.**

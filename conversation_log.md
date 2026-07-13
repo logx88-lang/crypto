@@ -890,3 +890,321 @@ Now updating progress log and adding a dev-requirements note for reproducibility
 5. **누락 포맷** — 빠진 실제 자료 유형이 있나요?
 
 특히 **2번(HEX 실제 포맷)**이 파서 정확도에 직결되니 중요합니다. "실제는 이런 점이 다르다"를 알려주시면 샘플을 수정하고, **승인해 주시면** 그때 파싱→인덱싱→질의 E2E(MVP) 구현에 착수하겠습니다. (bge-m3 반입과 병행 가능합니다.)
+
+### 사용자 · 2026-07-09T08:54:22.350Z
+
+1. 얼추 비슷해.
+2. 대부분 이 형태 와 비슷하지만 다른 형태의 로그가 있을수 있어.
+3. 문서당 표가 더 훨씬 더 많고 페이지도 많음
+4. 비슷함
+5. 대부분 포함됨
+
+hex의 실제 포맷이 장비별로 다 달라서 대부분 비슷하지만 조금씩 달라. 심지어 hex 말고 일반 자연어로 표기되어있는 로그도 있음. 
+
+### 어시스턴트 · 2026-07-09T08:55:16.007Z
+
+아주 중요한 피드백입니다. 두 가지가 설계·샘플에 직접 영향을 줍니다:
+
+- **HEX 포맷이 장비별로 조금씩 다르다** → 단일 하드코딩 파서로는 안 되고, **장비별 파싱 프로파일(구분자·토큰 패턴·타임스탬프·프레이밍) + 자동 감지**로 가야 합니다.
+- **HEX가 아니라 자연어로 된 로그도 있다** → "HEX 모드"를 **통신 로그 분석 모드**로 일반화해서, hex 로그와 자연어 로그를 **둘 다** 처리해야 합니다.
+- **문서당 표·페이지가 훨씬 많다** → 표 보존 청킹·페이지 메타·리랭킹의 중요도가 커집니다.
+
+이 점들을 설계에 반영하고, 샘플도 **포맷 변형 + 자연어 로그 + 표 많은 다중 페이지 문서**로 보강하겠습니다. 먼저 생성기를 확장합니다.
+
+### 어시스턴트 · 2026-07-09T08:55:21.478Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:55:26.593Z
+
+Now expanding the PDF with more tables across multiple pages, and enhancing the HEX log generator with format variants + a natural-language log:
+
+### 어시스턴트 · 2026-07-09T08:55:28.283Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:55:57.533Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:56:02.339Z
+
+Now enhancing the log generator with device-specific format variants and a natural-language log:
+
+### 어시스턴트 · 2026-07-09T08:56:18.758Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:56:24.596Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:56:32.218Z
+
+Samples regenerated with variants. Let me verify the expanded PDF page count and TG-15 CRC validity.
+
+### 어시스턴트 · 2026-07-09T08:56:37.962Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:56:55.378Z
+
+PDF is now 4 pages/8 tables, TG-15 CRC valid, and the three new log variants (space+`0x`, TG-15 direction-marked, natural-language) all generated. Now let me reflect these realities in the design. Reading the current §7 to edit precisely.
+
+### 어시스턴트 · 2026-07-09T08:56:55.865Z
+
+[도구 호출: Read]
+
+### 어시스턴트 · 2026-07-09T08:57:27.861Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:57:36.286Z
+
+Now noting the large multi-table/multi-page reality in the chunking section:
+
+### 어시스턴트 · 2026-07-09T08:57:42.341Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:57:47.921Z
+
+Now updating the MANIFEST and progress log, then committing:
+
+### 어시스턴트 · 2026-07-09T08:58:03.051Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:58:11.311Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:58:27.286Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T08:58:40.060Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T08:59:26.270Z
+
+피드백을 모두 반영해 커밋·push 했습니다.
+
+## 반영 완료
+
+**설계 변경 (갈림길 반영)**
+- **§7을 "통신 로그 분석 모드"로 일반화**: 업로드 시 **HEX / 자연어 로그를 자동 판별**하고, 자연어 로그는 바이트 파싱 없이 텍스트+명세로 LLM이 해석하는 별도 경로를 둡니다.
+- **장비별 파싱 프로파일** 도입: 포맷이 장비마다 다르므로 하드코딩 대신 `byte_token/separator/framing/checksum/endian` 등을 프로파일로 두고 **자동 감지 → 사용자 확인 → 저장·재사용**.
+- **대문서 대응**: 표·페이지가 많으니 **표 단위 청크 + 페이지 메타**를 기본화하고, 후보가 많아지는 만큼 **리랭커 비중**을 키웁니다.
+
+**샘플 보강**
+- HEX 변형 3종 추가: `coin_log_space0x.txt`(공백+`0x`), `sensor_log_tg15.txt`(타 장비·`[TX]/[RX]`·CRC16), **`event_log_natural.txt`(자연어 로그)**.
+- XM-200 명세 PDF를 **4페이지·표 8개**로 확장(레지스터맵/비트필드/타이밍/NAK/설정) — "표·페이지 많음" 반영.
+- 검증: TG-15 CRC16·XM-200 XOR 모두 유효, PDF 4p/표8 추출 확인.
+
+---
+
+## 다음 단계 제안
+
+이제 MVP 구현에 들어갈 준비가 됐습니다. 다만 이 개발 환경에는 **Ollama가 없어** LLM/임베딩이 필요한 완전 E2E는 사용자 PC에서 돌려야 합니다. 그래서 **여기서 지금 바로 검증 가능한 결정적(deterministic) 코어부터** 시작하는 걸 제안합니다:
+
+**1차 증분 (Ollama 불필요, 샘플로 즉시 검증 가능)**
+- 포맷별 파서(xlsx/docx/pptx/**pdf**/txt, 인코딩 판별, 표 직렬화)
+- 표 보존 청킹 + 메타데이터
+- **HEX 프로파일 파서**(자동 감지 + 자연어 판별) — 우리 샘플의 정답 프레임과 대조 검증
+
+**2차 증분 (Ollama 필요, 사용자 PC에서 E2E)**
+- bge-m3 임베딩 + ChromaDB + BM25 하이브리드 + RRF + 리랭커 → LLM 출처 답변 → Streamlit UI
+
+이렇게 진행할까요?
+
+### 어시스턴트 · 2026-07-09T08:59:50.540Z
+
+[도구 호출: AskUserQuestion]
+
+### 어시스턴트 · 2026-07-09T09:03:06.252Z
+
+MVP 구현을 시작하겠습니다 — 추천대로 **결정적(deterministic) 코어부터**(파서·청킹·HEX 프로파일 파서) 진행합니다. 이 부분은 지금 이 환경에서 우리 샘플로 바로 검증할 수 있습니다.
+
+먼저 프로젝트 구조와 데이터 모델을 잡겠습니다.
+
+### 어시스턴트 · 2026-07-09T09:03:08.317Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T09:03:10.315Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T09:03:11.817Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T09:03:13.817Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T09:03:15.611Z
+
+[도구 호출: TaskCreate]
+
+### 어시스턴트 · 2026-07-09T09:03:18.103Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T09:03:24.882Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:03:41.405Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:03:50.827Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:04:04.746Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:04:20.187Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:04:43.067Z
+
+Now the parsers — the largest module:
+
+### 어시스턴트 · 2026-07-09T09:05:10.666Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:05:18.784Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T09:05:18.989Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T09:05:19.055Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T09:05:36.581Z
+
+Now the table-aware chunker:
+
+### 어시스턴트 · 2026-07-09T09:05:51.327Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:06:29.529Z
+
+Now the communication-log analysis package (profiles, detection, parser):
+
+### 어시스턴트 · 2026-07-09T09:06:34.822Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:06:49.524Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:07:10.054Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:07:34.087Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:08:11.044Z
+
+The binary framing needs length-based parsing (an ETX byte `0x03` can appear inside LEN/DATA — e.g. the DISPENSE frame). Let me fix `analyze_binary_log` to use the LEN field.
+
+### 어시스턴트 · 2026-07-09T09:08:18.695Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T09:08:21.669Z
+
+Now the test suite that validates everything against the sample set:
+
+### 어시스턴트 · 2026-07-09T09:08:51.755Z
+
+[도구 호출: Write]
+
+### 어시스턴트 · 2026-07-09T09:08:54.308Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T09:08:58.819Z
+
+All 12 tests pass against the sample set. Let me mark tasks done and do a quick end-to-end sanity check to show the pipeline working on a real sample, then commit.
+
+### 어시스턴트 · 2026-07-09T09:08:59.322Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T09:08:59.822Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T09:09:00.290Z
+
+[도구 호출: TaskUpdate]
+
+### 어시스턴트 · 2026-07-09T09:09:15.870Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T09:09:24.061Z
+
+The deterministic core works end-to-end: PDF → 12 chunks (8 table, 4 text) with page metadata; HEX log → 15/15 frames valid with command mapping; natural-language log correctly routed. Let me update the project docs and commit.
+
+### 어시스턴트 · 2026-07-09T09:09:36.567Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T09:09:54.744Z
+
+[도구 호출: Edit]
+
+### 어시스턴트 · 2026-07-09T09:09:58.369Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T09:10:13.570Z
+
+[도구 호출: Bash]
+
+### 어시스턴트 · 2026-07-09T09:10:49.646Z
+
+MVP의 **결정적 코어**를 완성해서 커밋·push 했습니다. 이 환경에서 우리 샘플로 **12/12 테스트 통과**했습니다.
+
+## 이번에 구현한 것 (`rag/` 패키지, Ollama 불필요)
+
+**`rag/ingest/` — 인제스천**
+- 5개 파서: `xlsx`(병합셀 fill-forward·다중헤더), `docx`(등장순서 보존), `pptx`(슬라이드 메타), **`pdf`(표 추출)**, `txt`(인코딩 자동판별)
+- 표 마크다운 직렬화, **표 보존 청킹**(표 단위+헤더 반복, 텍스트 오버랩 윈도우), 출처 메타데이터
+
+**`rag/logs/` — 통신 로그 분석**
+- **장비별 파싱 프로파일** + HEX/자연어 **자동 판별** + 바이트 복원 + 프레이밍/체크섬(XOR·CRC16)
+- 발견·수정: 바이너리 `.dat`의 STX/ETX 프레이밍은 ETX 검색이 아니라 **LEN 필드 기반**이어야 함(DATA에 `0x03`이 들어갈 수 있음 — 예: DISPENSE `02 03 14 01 f4 e2 03`). 수정 후 15/15 유효.
+
+**검증 데모 결과**
+- XM-200 PDF → 요소 12개(표 8) → 청크 12개(표 8·텍스트 4), 페이지 메타 부착
+- `coin_log_ts.txt` → `COIN_IN(0x12)` 등 **15/15 프레임 유효**, 명령 코드 매핑
+- `event_log_natural.txt` → **자연어 경로**로 정상 분기
+
+## 남은 것 — 2차 증분 (Ollama 필요, 사용자 PC에서 E2E)
+`rag/index`(bge-m3 임베딩·ChromaDB·BM25) → `rag/retrieve`(하이브리드·RRF·리랭커) → `rag/generate`(LLM 출처 답변) → `rag/app`(Streamlit 3탭: 문서 QA·로그 분석·관리). 로그 분석 탭에 **후보 검색 → 확인 단계 → 해석** 흐름을 연결합니다.
+
+이 중 **BM25+RRF 하이브리드 로직은 여기서도 테스트 가능**하고, 임베딩·리랭커·LLM·UI는 인터페이스로 분리해 작성하되 완전 E2E는 사용자 PC(Ollama)에서 돌아갑니다.
+
+---
+
+계속해서 **2차 증분**을 진행할까요? 제안 순서는 (1) BM25+RRF 하이브리드 검색(여기서 테스트 가능) → (2) Ollama 임베딩/ChromaDB 연동 + 리랭커 → (3) LLM 답변 생성 → (4) Streamlit UI 입니다. 아니면 먼저 지금까지의 코어를 사용자 PC에서 돌려보시겠어요? 원하시는 방향을 알려주세요.

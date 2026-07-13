@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-07-09 (7) — 다른 머신(VPN 서버) 이어가기용 인수인계 문서
+
+### 한 일
+- `docs/HANDOFF.md` 작성: 저장소 가져오기 → 환경세팅(파이썬/의존성/Ollama+모델 pull) → 코드지도
+  → 남은 2차 증분 모듈 계약(index/retrieve/generate/app) → 재개 시 기억할 결정/제약 → 작업규약.
+- CLAUDE.md 현재상태에 HANDOFF 포인터 추가.
+
+### 재개 메모
+- VPN 서버는 인터넷/LLM 설치 가능 → `ollama pull bge-m3`(1024d 정품)·`qwen3:8b`로 2차 증분 E2E 검증 가능.
+- 새 서버 LLM 태그가 다르면 `RAG_LLM`/`RAG_EMBED` 환경변수로 override(config 기본은 qwen3_8b_ctx32998).
+- 2차 증분 권장 시작점: RRF(순수 로직, 테스트 가능) → 임베딩/ChromaDB/BM25 인덱서 → 리랭커 → LLM → Streamlit.
+
+---
+
 ## 2026-07-09 (6) — MVP 결정적 코어 구현 + 샘플 대조 테스트 통과
 
 ### 한 일
