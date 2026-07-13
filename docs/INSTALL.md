@@ -50,6 +50,12 @@ py -m venv C:\build\ocrtmp; C:\build\ocrtmp\Scripts\pip install paddlepaddle pad
 C:\build\ocrtmp\Scripts\python -c "from paddleocr import PaddleOCR; PaddleOCR(use_textline_orientation=True, lang='korean', enable_mkldnn=False).predict('crypto/samples/dummy_set/images/system_diagram.png')"
 ```
 
+### 0-4b. 개발 PC용 클라이언트 앱 빌드 (독립 실행 exe)
+```powershell
+.\packaging\client\build_client.ps1     # → packaging\client\dist\rag-client.exe (+ server.txt)
+```
+> 이 `rag-client.exe`(+`server.txt`)를 USB에 함께 담아 각 개발 PC에 배포한다(2단계).
+
 ### 0-5. USB 폴더 구성
 아래를 USB에 복사(폴더명 그대로):
 ```
@@ -133,15 +139,24 @@ $env:RAG_EMBED="bge-m3"
 
 ---
 
-## 2단계 — 개발 PC B-1/B-2/… (설치 없음)
+## 2단계 — 개발 PC B-1/B-2/… (설치 없음, 독립 앱)
 
-1. `packaging\open_client.bat` 를 메모장으로 열어 서버 주소 수정:
-   ```bat
-   set SERVER=http://192.168.0.10:8501    REM ← 1-6 에서 확인한 A 주소
-   ```
-2. 이 `.bat` 를 각 개발 PC 바탕화면에 복사.
-3. **더블클릭 → 브라우저로 앱이 열림.** (창모드 원하면 `.bat` 안 `--app` 줄 사용)
-4. 접속 안 되면: A에서 서버 실행 중인지, 방화벽 8501 허용됐는지, 같은 사내망인지 확인.
+브라우저가 아니라 **독립 실행 앱(`rag-client.exe`)** 으로 띄운다(주소창·탭 없는 자체 창).
+
+### 2-A. 클라이언트 exe 빌드 (온라인 Windows PC, 1회 — 0단계에서 함께)
+```powershell
+.\packaging\client\build_client.ps1     # → packaging\client\dist\rag-client.exe
+```
+- 결과 `rag-client.exe` 자체는 오프라인 동작. Win11 은 WebView2 내장(구형 Windows면 런타임 반입).
+
+### 2-B. 각 개발 PC 배포
+1. `rag-client.exe` + `server.txt` 를 B PC 같은 폴더에 복사.
+2. `server.txt` 를 A 서버 주소로 수정(한 줄): `http://192.168.0.10:8501` (1-6 출력 주소).
+3. **`rag-client.exe` 더블클릭 → 독립 창으로 앱 실행.** 바탕화면 바로가기+아이콘 지정 시 완전한 앱 형태.
+4. 서버 IP가 바뀌면 **server.txt 만 수정**(재빌드 불필요). 연결 실패 창이 뜨면 서버 실행/방화벽/주소 확인.
+
+> 무빌드 대안: `packaging\open_client.bat`(Edge 앱모드 `--app`)도 주소창 없는 창을 띄운다.
+> 자세한 내용은 `packaging/client/README.md`.
 
 ---
 

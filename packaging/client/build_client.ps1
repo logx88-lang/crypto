@@ -1,0 +1,31 @@
+# 클라이언트 실행파일 빌드 — **온라인 Windows PC에서 1회** (인터넷 필요)
+#
+# rag_client.py → dist\rag-client.exe (단일 실행파일). 이 exe + server.txt 를 개발 PC(B)에 배포.
+# B PC는 설치 없이 exe 더블클릭 = 독립 창 앱(브라우저 아님, WebView2 사용).
+#
+# 사용:  .\packaging\client\build_client.ps1
+# 사전:  Windows + Python 3.10~3.12. (Win11 은 WebView2 런타임 기본 내장)
+
+$ErrorActionPreference = "Stop"
+$Here = $PSScriptRoot
+Set-Location $Here
+
+# 격리 빌드 환경
+python -m venv .build
+.\.build\Scripts\python -m pip install --upgrade pip
+.\.build\Scripts\pip install pywebview pyinstaller
+
+# 단일 exe 빌드 (--noconsole: 콘솔창 없음)
+.\.build\Scripts\pyinstaller --onefile --noconsole --clean --name rag-client `
+    --collect-all webview `
+    rag_client.py
+
+# server.txt 예시를 dist 에 함께 배치
+if (-not (Test-Path .\dist\server.txt)) {
+    Copy-Item .\server.txt.example .\dist\server.txt
+}
+
+Write-Host ""
+Write-Host "빌드 완료: $Here\dist\rag-client.exe"
+Write-Host "배포: dist\rag-client.exe + dist\server.txt (서버주소 기입) 를 각 개발 PC에 복사."
+Write-Host "  · 오프라인 배포 시: 이 exe 는 인터넷 불필요. Win11 은 WebView2 내장(구형 Windows면 런타임 반입)."
