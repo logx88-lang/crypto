@@ -216,28 +216,63 @@ with tab_fb:
 # ===========================================================================
 with tab_admin:
     st.subheader("인덱스 관리")
-    st.write(f"- 문서 폴더: `{CONFIG.data_dir}`")
-    st.write(f"- 벡터 DB: `{CONFIG.chroma_dir}` · BM25: `{CONFIG.bm25_path}`")
-    st.write(f"- 임베딩: `{CONFIG.embed_model}` ({CONFIG.embed_dim}d) · LLM: `{CONFIG.llm_model}`")
+    from rag.ingest import SUPPORTED_EXTS
+    _EXTS = ["xlsx", "docx", "pptx", "pdf", "txt", "png", "jpg", "jpeg", "bmp", "tiff", "tif"]
 
+    def _run_index(full: bool):
+        from rag.index.indexer import Indexer
+        with st.spinner("전체 재인덱싱 중…" if full else "인덱싱 중…"):
+            stats = Indexer().reindex(full=full)
+        st.success(f"인덱싱 완료: {stats}")
+        get_pipeline.clear(); get_retriever_llm.clear()
+
+    # --- 문서 업로드 → 저장 + 인덱싱 ---
+    st.markdown("#### 문서 업로드")
+    st.caption(f"지원: {', '.join(_EXTS)}  (HWP·구형 doc/xls 는 미지원 → PDF 등으로 변환)")
+    ups = st.file_uploader("사내 문서 업로드 (여러 개 선택 가능)", type=_EXTS,
+                           accept_multiple_files=True, key="doc_up")
+    if st.button("⬆️ 업로드 저장 + 인덱싱", key="up_index"):
+        if not ups:
+            st.warning("먼저 파일을 선택하세요.")
+        else:
+            try:
+                os.makedirs(CONFIG.data_dir, exist_ok=True)
+                saved = []
+                for f in ups:
+                    with open(os.path.join(CONFIG.data_dir, f.name), "wb") as out:
+                        out.write(f.getbuffer())
+                    saved.append(f.name)
+                st.info(f"저장 {len(saved)}개: {', '.join(saved[:20])}")
+                _run_index(full=False)
+            except Exception as e:
+                st.error(f"실패: {e}")
+
+    # --- 현재 인덱싱 대상 문서 ---
+    st.markdown("#### 현재 문서")
+    docs = []
+    if os.path.isdir(CONFIG.data_dir):
+        docs = [f for _r, _d, fs in os.walk(CONFIG.data_dir) for f in fs
+                if "." in f and f.rsplit(".", 1)[-1].lower() in SUPPORTED_EXTS]
+    st.write(f"인덱싱 대상 문서 **{len(docs)}개**")
+    if docs:
+        with st.expander("문서 목록 보기"):
+            st.write("\n".join(f"- {d}" for d in sorted(docs)))
+
+    # --- 재인덱싱 / 관리 ---
+    st.markdown("#### 재인덱싱")
     col1, col2 = st.columns(2)
-    if col1.button("증분 인덱싱", key="idx_inc"):
+    if col1.button("증분 인덱싱(변경분만)", key="idx_inc"):
         try:
-            from rag.index.indexer import Indexer
-            with st.spinner("증분 인덱싱 중…"):
-                stats = Indexer().reindex(full=False)
-            st.success(f"완료: {stats}")
-            get_pipeline.clear(); get_retriever_llm.clear()
+            _run_index(full=False)
         except Exception as e:
             st.error(f"인덱싱 실패: {e}")
     if col2.button("전체 재인덱싱", key="idx_full"):
         try:
-            from rag.index.indexer import Indexer
-            with st.spinner("전체 재인덱싱 중…"):
-                stats = Indexer().reindex(full=True)
-            st.success(f"완료: {stats}")
-            get_pipeline.clear(); get_retriever_llm.clear()
+            _run_index(full=True)
         except Exception as e:
             st.error(f"인덱싱 실패: {e}")
 
-    st.caption("먼저 문서를 data 폴더에 넣고 인덱싱하세요. 인덱싱 후 QA/로그 탭 사용 가능.")
+    with st.expander("경로/모델 정보"):
+        st.write(f"- 문서 폴더: `{CONFIG.data_dir}` · 벡터DB `{CONFIG.chroma_dir}` · BM25 `{CONFIG.bm25_path}`")
+        st.write(f"- 임베딩 `{CONFIG.embed_model}` ({CONFIG.embed_dim}d) · LLM `{CONFIG.llm_model}`")
+    st.caption("업로드하면 서버 data 폴더에 저장되고 바로 인덱싱됩니다. 인덱싱 후 QA/로그 탭에서 사용.")
