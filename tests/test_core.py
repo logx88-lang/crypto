@@ -160,6 +160,20 @@ def _run_all():
     return passed == len(fns)
 
 
+def test_rf_cmd_len_lrc():
+    """RF module류 Command(2)+Length(2)+Data+LRC 프레이밍 파싱."""
+    from rag.logs.detect import detect_profile
+    # SD 프레임: 53 44(=SD) 00 02(len) 31 32(='12') 16(LRC=XOR)
+    log = ("[20260714 02:05:00]->TX : CMD[SD]\n"
+           "[20260714 02:05:00]->TX : [53][44][00][02][31][32][16]\n")
+    p = detect_profile(log)
+    assert p and p.framing == "cmd_len_lrc", p
+    res = analyze_text_log(log)
+    assert res["total"] == 1 and res["valid_count"] == 1, res
+    fr = res["frames"][0]
+    assert fr["cmd_ascii"] == "SD" and fr["length"] == 2 and fr["data_ascii"] == "12"
+
+
 if __name__ == "__main__":
     ok = _run_all()
     sys.exit(0 if ok else 1)

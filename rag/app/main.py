@@ -55,6 +55,28 @@ def feedback_form(kind: str, prefill: dict, key: str):
                        key=f"{key}_sev")
         note = st.text_area("증상/메모 — 무엇이 잘못됐는지 구체적으로 적어주세요.",
                             key=f"{key}_note")
+
+        # 이미지 첨부: 클립보드 붙여넣기(컴포넌트 있으면) 또는 파일 업로드
+        img_key = f"{key}_imgbytes"
+        try:
+            from streamlit_paste_button import paste_image_button as _paste
+            pasted = _paste("📋 클립보드 이미지 붙여넣기", key=f"{key}_paste")
+            if pasted is not None and getattr(pasted, "image_data", None) is not None:
+                import io
+                _buf = io.BytesIO(); pasted.image_data.save(_buf, format="PNG")
+                st.session_state[img_key] = _buf.getvalue()
+        except Exception:
+            st.caption("클립보드 붙여넣기 미지원 — 아래 파일 업로드를 이용하세요.")
+        up_img = st.file_uploader("또는 이미지 파일 첨부", type=["png", "jpg", "jpeg", "bmp"],
+                                  key=f"{key}_img")
+        if up_img is not None:
+            st.session_state[img_key] = up_img.getvalue()
+        img_bytes = st.session_state.get(img_key)
+        if img_bytes:
+            st.image(img_bytes, width=280, caption="첨부 이미지")
+            if st.button("이미지 제거", key=f"{key}_imgclr"):
+                st.session_state.pop(img_key, None); img_bytes = None
+
         redact = st.checkbox("🔒 비식별화(외부 반출 시 민감하면 체크)", value=False,
                              key=f"{key}_redact")
         record = {"ts": _now(), "kind": kind, "category": cat, "severity": sev,
@@ -65,7 +87,8 @@ def feedback_form(kind: str, prefill: dict, key: str):
         if st.checkbox("🔍 저장될 내용 미리보기", key=f"{key}_pv"):
             st.json(rec)
         if st.button("개선 기록 저장", key=f"{key}_save"):
-            FeedbackLog().add(rec, already_sanitized=True)
+            FeedbackLog().add(rec, already_sanitized=True, image_bytes=img_bytes)
+            st.session_state.pop(img_key, None)
             st.success(("비식별화되어 " if redact else "") + "저장되었습니다. '개선 기록' 탭에서 반출하세요.")
 
 
@@ -205,6 +228,10 @@ with tab_fb:
             cs = r.get("context_summary")
             if cs:
                 st.caption(f"검색 근거: 총 {cs.get('n',0)}개 (표 {cs.get('table',0)} / 텍스트 {cs.get('text',0)})")
+            if r.get("image"):
+                _imgp = os.path.join(CONFIG.feedback_dir, r["image"])
+                if os.path.exists(_imgp):
+                    st.image(_imgp, width=320)
         if st.button("📤 Markdown 내보내기(USB 반출용)"):
             path = log.export_markdown()
             st.success(f"내보냄: `{path}` — 이 파일만 반출하세요(실데이터 없음).")

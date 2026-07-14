@@ -6,6 +6,7 @@
 
 # --- UI ---
 streamlit            # 단일 호스트 다중 사용자 웹 UI (0.0.0.0:8501)
+streamlit-paste-button  # 개선기록 클립보드 이미지 붙여넣기(순수 wheel)
 
 # --- 벡터 DB / 검색 ---
 chromadb             # 벡터 저장/검색 (onnxruntime 등 네이티브 의존성 wheel 동반 확인 필요)

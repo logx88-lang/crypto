@@ -67,9 +67,13 @@ def summarize_analysis(analysis: dict, max_frames: int = 40) -> str:
     rows = []
     for i, fr in enumerate(frames[:max_frames], start=1):
         cmd = fr.get("cmd")
-        cmd_s = f"0x{cmd:02X}" if isinstance(cmd, int) else "?"
+        if fr.get("cmd_ascii"):           # RF류: 2글자 ASCII 명령 + 길이 + 데이터
+            da = fr.get("data_ascii", "")
+            cmd_s = f"'{fr['cmd_ascii']}' len={fr.get('length')} data='{da[:48]}'"
+        else:
+            cmd_s = f"CMD=0x{cmd:02X}" if isinstance(cmd, int) else "CMD=?"
         flag = "OK" if fr.get("valid") else f"✗({fr.get('note','')})"
-        rows.append(f"{i:>3}. CMD={cmd_s} [{fr.get('hex','')}] {flag}")
+        rows.append(f"{i:>3}. {cmd_s} [{fr.get('hex','')[:60]}] {flag}")
     body = "\n".join(rows)
     if total > max_frames:
         body += f"\n… (총 {total} 프레임 중 {max_frames} 표시)"

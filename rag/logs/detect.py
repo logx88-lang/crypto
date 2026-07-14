@@ -9,17 +9,20 @@ import re
 from typing import Optional
 
 from .profiles import (ParsingProfile, BUILTIN_PROFILES, TOK_BRACKET, TOK_0X,
-                       TOK_BARE, TS_MMDD, TS_ISO, DIR_TXRX)
+                       TOK_BARE, TS_MMDD, TS_ISO, TS_RF, DIR_TXRX, DIR_ARROW,
+                       CMD_MARKER)
 
-_TS_ANY = re.compile(f"(?:{TS_MMDD})|(?:{TS_ISO})")
+_TS_ANY = re.compile(f"(?:{TS_MMDD})|(?:{TS_ISO})|(?:{TS_RF})")
+_CMD_MARKER = re.compile(CMD_MARKER)
 _DIR = re.compile(DIR_TXRX)
+_DIR_ANY = re.compile(f"(?:{DIR_TXRX})|(?:{DIR_ARROW})|(?:{CMD_MARKER})")
 _HANGUL_WORD = re.compile(r"[가-힣]{2,}")
 _LONG_WORD = re.compile(r"[A-Za-z가-힣]{4,}")
 
 
 def _strip_meta(line: str) -> str:
     line = _TS_ANY.sub(" ", line)
-    line = _DIR.sub(" ", line)
+    line = _DIR_ANY.sub(" ", line)   # [TX]/[RX], ->TX:, CMD[XX] 등 구조 표기 제거
     return line
 
 
@@ -35,14 +38,17 @@ def detect_log_type(text: str) -> str:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         return "natural"
-    hex_lines = 0
+    hex_lines, nat_lines = 0, 0
     for ln in lines:
         body = _strip_meta(ln)
         hex_tokens = max(_count(TOK_BRACKET, body), _count(TOK_0X, body), _count(TOK_BARE, body))
         words = len(_LONG_WORD.findall(body)) + len(_HANGUL_WORD.findall(body))
         if hex_tokens >= 2 and hex_tokens >= words:
             hex_lines += 1
-    return "hex" if hex_lines >= 0.6 * len(lines) else "natural"
+        elif words >= 2:
+            nat_lines += 1
+        # 그 외(메타/CMD 마커만 남은 줄)는 중립 — 어느 쪽으로도 세지 않음
+    return "hex" if hex_lines > nat_lines and hex_lines > 0 else "natural"
 
 
 def detect_profile(text: str) -> Optional[ParsingProfile]:
@@ -54,6 +60,12 @@ def detect_profile(text: str) -> Optional[ParsingProfile]:
     if not lines:
         return None
     sample = "\n".join(lines[:30])
+
+    # RF module류: CMD[XX] 명령 마커가 있으면 Command(2)+Length(2)+Data+LRC 프레이밍
+    if _CMD_MARKER.search(sample):
+        for p in BUILTIN_PROFILES:
+            if p.name == "rf_cmd_len_lrc":
+                return p
 
     counts = {
         "bracket": _count(TOK_BRACKET, sample),

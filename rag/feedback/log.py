@@ -18,10 +18,22 @@ class FeedbackLog:
         self.dir = path or CONFIG.feedback_dir
         self.jsonl = os.path.join(self.dir, "feedback.jsonl")
 
-    def add(self, record: dict, already_sanitized: bool = False) -> dict:
-        """레코드 추가. 기본은 방어적으로 재-비식별화(app이 안 했더라도 안전 보장)."""
+    def add(self, record: dict, already_sanitized: bool = False,
+            image_bytes: bytes = None, image_ext: str = "png") -> dict:
+        """레코드 추가. 기본은 방어적으로 재-비식별화(app이 안 했더라도 안전 보장).
+
+        image_bytes 있으면 images/ 에 저장하고 레코드에 상대경로(image)를 남긴다.
+        """
         safe = record if already_sanitized else sanitize_record(record)
         os.makedirs(self.dir, exist_ok=True)
+        if image_bytes:
+            n = self.count() + 1
+            slug = str(safe.get("ts", "img")).replace(":", "").replace(" ", "_").replace("-", "")
+            rel = os.path.join("images", f"{slug}_{n}.{image_ext}")
+            os.makedirs(os.path.join(self.dir, "images"), exist_ok=True)
+            with open(os.path.join(self.dir, rel), "wb") as f:
+                f.write(image_bytes)
+            safe["image"] = rel.replace("\\", "/")
         with open(self.jsonl, "a", encoding="utf-8") as f:
             f.write(json.dumps(safe, ensure_ascii=False) + "\n")
         return safe
@@ -56,6 +68,8 @@ class FeedbackLog:
                 lines.append(f"- **답변**: {r['answer']}")
             if r.get("note"):
                 lines.append(f"- **메모**: {r['note']}")
+            if r.get("image"):
+                lines.append(f"- **첨부 이미지**: ![]({r['image']})  (`{r['image']}`)")
             cs = r.get("context_summary")
             if cs:
                 lines.append(f"- **검색 근거 요약**: 총 {cs.get('n',0)}개 "

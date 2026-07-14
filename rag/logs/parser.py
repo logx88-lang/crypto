@@ -28,6 +28,14 @@ def crc16_ccitt(data: bytes, crc: int = 0xFFFF) -> int:
     return crc
 
 
+def lrc_checksum(data: bytes) -> int:
+    """LRC = 바이트 XOR 누적 (RF module 등). Command+Length+Data 대상."""
+    c = 0
+    for b in data:
+        c ^= b
+    return c
+
+
 def reconstruct_bytes(line: str, profile: ParsingProfile) -> list:
     """한 라인에서 타임스탬프/방향표시/구분자를 제거하고 hex 바이트 리스트로 복원."""
     body = line
@@ -86,6 +94,8 @@ def analyze_text_log(text: str, profile: Optional[ParsingProfile] = None) -> dic
                 "note": "자연어 로그 — 바이트 파싱 없이 텍스트+명세로 LLM 해석 경로."}
 
     profile = profile or detect_profile(text)
+    if profile and profile.framing == "cmd_len_lrc":
+        return analyze_cmd_len_log(text, profile)   # 프레임이 여러 줄에 걸침 → 스트림 파싱
     frames = []
     valid = 0
     for ln in text.splitlines():
@@ -98,6 +108,42 @@ def analyze_text_log(text: str, profile: Optional[ParsingProfile] = None) -> dic
         frames.append(fr)
         if fr["valid"]:
             valid += 1
+    return {"log_type": "hex", "profile": profile, "frames": frames,
+            "valid_count": valid, "total": len(frames)}
+
+
+def analyze_cmd_len_log(text: str, profile: ParsingProfile) -> dict:
+    """Command(2 ASCII)+Length(2)+Data(n)+LRC(1) 프레이밍 (RF module류).
+
+    프레임이 여러 줄에 걸치므로 전체 [hh] 바이트를 이어붙여 하나의 스트림으로 만든 뒤
+    Length 필드로 프레임을 분할한다(STX/ETX 불필요). LRC = Command+Length+Data 의 XOR.
+    """
+    stream = []
+    for ln in text.splitlines():
+        if ln.strip():
+            stream.extend(reconstruct_bytes(ln, profile))
+    frames, valid = [], 0
+    i, n = 0, len(stream)
+    while i + 5 <= n:                      # 최소 프레임 = Cmd2+Len2+LRC1
+        length = (stream[i + 2] << 8) | stream[i + 3]
+        total = length + 5                # Cmd2 + Len2 + Data(length) + LRC1
+        if i + total > n:
+            break
+        frame = stream[i:i + total]
+        cmd_ascii = bytes(frame[0:2]).decode("ascii", "replace")
+        data = frame[4:4 + length]
+        lrc = frame[-1]
+        calc = lrc_checksum(frame[0:4 + length])   # Command+Length+Data
+        ok = (calc == lrc)
+        frames.append({
+            "bytes": frame, "hex": " ".join(f"{x:02X}" for x in frame),
+            "cmd": None, "cmd_ascii": cmd_ascii, "length": length,
+            "data": list(data), "data_ascii": bytes(data).decode("ascii", "replace"),
+            "lrc": lrc, "valid": ok,
+            "note": "" if ok else f"LRC 불일치(계산 0x{calc:02X}, 값 0x{lrc:02X})",
+        })
+        valid += int(ok)
+        i += total
     return {"log_type": "hex", "profile": profile, "frames": frames,
             "valid_count": valid, "total": len(frames)}
 
