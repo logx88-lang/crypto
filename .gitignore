@@ -27,6 +27,12 @@ uploads/
 logs/
 *.log
 
+# 클라이언트 빌드 산출물(PyInstaller)
+packaging/client/.build/
+packaging/client/build/
+packaging/client/dist/
+packaging/client/*.spec
+
 # OS/에디터
 .DS_Store
 Thumbs.db
