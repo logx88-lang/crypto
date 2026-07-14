@@ -174,6 +174,26 @@ def test_rf_cmd_len_lrc():
     assert fr["cmd_ascii"] == "SD" and fr["length"] == 2 and fr["data_ascii"] == "12"
 
 
+def test_generic_config_parser():
+    """문서 기반 범용 파서: 설정(dict)만으로 프레임 파싱(하드코딩 없음)."""
+    from rag.logs.generic import analyze_with_profile, detect_line_format
+    profile = {
+        "framing": "length", "byte_token": "bracket",
+        "cmd": {"offset": 0, "size": 2, "type": "ascii"},
+        "length": {"offset": 2, "size": 2, "endian": "big"},
+        "header_size": 4, "trailer_size": 1,
+        "checksum": {"type": "lrc", "span": "header_and_data"},
+    }
+    log = "[53][44][00][02][31][32][16]"   # SD + len2 + '12' + LRC 0x16
+    res = analyze_with_profile(log, profile)
+    assert res["total"] == 1 and res["valid_count"] == 1, res
+    fr = res["frames"][0]
+    assert fr["cmd_ascii"] == "SD" and fr["length"] == 2 and fr["data_ascii"] == "12"
+    # 줄형식 자동감지
+    lf = detect_line_format("[20260714 02:05:00]->TX : CMD[SD]\n[53][44][00][00][17]")
+    assert lf["byte_token"] == "bracket" and lf["timestamp_regex"]
+
+
 if __name__ == "__main__":
     ok = _run_all()
     sys.exit(0 if ok else 1)

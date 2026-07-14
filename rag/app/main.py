@@ -136,7 +136,8 @@ with tab_qa:
 # ===========================================================================
 with tab_log:
     st.subheader("통신 로그 분석")
-    st.caption("HEX/자연어 로그 업로드 → 프로토콜 명세 후보 확인 → 확정 명세 기반 해석 (자동 추측 없음)")
+    st.caption("HEX/자연어 로그 업로드 → 프로토콜 명세 선택 → **선택 문서에서 프레임 규격을 자동 도출**해 "
+               "파싱 → 해석. 모듈마다 형식이 달라도 해당 명세만 있으면 됩니다(하드코딩 없음).")
     up = st.file_uploader("로그 파일 (.txt/.dat/.log)", type=["txt", "dat", "log"],
                           key="log_up")
     log_q = st.text_input("질문(선택)", key="log_q",
@@ -187,10 +188,19 @@ with tab_log:
                     fn = os.path.basename(str(m.get("source_file") or "문서"))
                     st.markdown(f"**[{i+1}] {fn}** · {m.get('section','')}")
                     st.code(c["document"][:1500])
-            if st.button("확정 명세로 해석", key="log_explain") and chosen and analysis:
+            if st.button("확정 명세로 파싱·해석", key="log_explain") and chosen:
                 try:
-                    with st.spinner("LLM 해석 중…"):
-                        st.session_state["log_out"] = explain(llm, log_q, analysis, chosen)
+                    with st.spinner("명세에서 프레임 구조 도출 → 파싱 → 해석 중…"):
+                        use = analysis
+                        if text is not None:      # 텍스트 로그: 선택 문서 기반 파싱
+                            from rag.logs.generic import analyze_by_spec
+                            spec_text = "\n\n".join(c.get("document", "") for c in chosen)
+                            parsed = analyze_by_spec(text, spec_text, llm)
+                            if parsed.get("derived"):
+                                use = parsed
+                                st.session_state["log_profile"] = parsed.get("profile")
+                        st.session_state["log_parsed"] = use
+                        st.session_state["log_out"] = explain(llm, log_q, use, chosen)
                 except Exception as e:
                     st.error(f"해석 실패: {e}")
             elif not picked:
@@ -198,6 +208,14 @@ with tab_log:
         else:
             st.caption("명세 후보가 없습니다. 관리 탭에서 프로토콜 명세 문서를 먼저 인덱싱하세요.")
 
+        prof = st.session_state.get("log_profile")
+        parsed = st.session_state.get("log_parsed")
+        if prof:
+            with st.expander("📐 명세에서 도출한 파싱 규격 (자동)"):
+                st.json(prof)
+        if parsed and parsed is not analysis:
+            st.markdown("#### 명세 기반 파싱 결과")
+            st.code(summarize_analysis(parsed))
         if st.session_state.get("log_out"):
             st.markdown("#### 해석")
             st.write(st.session_state["log_out"])
