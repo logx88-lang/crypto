@@ -49,6 +49,9 @@ class BM25Index:
     def build(self, ids, texts) -> None:
         import bm25s  # 지연 임포트
         self.ids = list(ids)
+        if not self.ids:            # 빈 코퍼스: bm25s.index([])가 max() 크래시 → 스킵
+            self._bm25 = None
+            return
         corpus_tokens = [self.tokenize(t) for t in texts]
         self._bm25 = bm25s.BM25()
         self._bm25.index(corpus_tokens)
@@ -73,10 +76,13 @@ class BM25Index:
     def save(self, path: str = None) -> None:
         path = path or CONFIG.bm25_path
         base = path[:-4] if path.endswith(".pkl") else path
-        os.makedirs(base + "_bm25s", exist_ok=True)
-        self._bm25.save(base + "_bm25s")
+        os.makedirs(os.path.dirname(base) or ".", exist_ok=True)
         with open(base + "_ids.json", "w", encoding="utf-8") as f:
             json.dump(self.ids, f, ensure_ascii=False)
+        if self._bm25 is None:      # 빈 인덱스: bm25s 디렉토리 없이 ids만 저장
+            return
+        os.makedirs(base + "_bm25s", exist_ok=True)
+        self._bm25.save(base + "_bm25s")
 
     @classmethod
     def load(cls, path: str = None) -> "BM25Index":
@@ -87,7 +93,8 @@ class BM25Index:
         ids_file = base + "_ids.json"
         if not os.path.exists(ids_file):
             return obj  # 아직 인덱스 없음 → 빈 인덱스
-        obj._bm25 = bm25s.BM25.load(base + "_bm25s")
         with open(ids_file, encoding="utf-8") as f:
             obj.ids = json.load(f)
+        if obj.ids and os.path.exists(base + "_bm25s"):
+            obj._bm25 = bm25s.BM25.load(base + "_bm25s")
         return obj
