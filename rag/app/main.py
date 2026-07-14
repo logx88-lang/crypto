@@ -148,16 +148,21 @@ with tab_log:
 
         chosen = []
         if cands:
-            labels = [f"{c['metadata'].get('doc_title','?')} · "
-                      f"{c['metadata'].get('page_no') or c['metadata'].get('section') or ''}"
-                      for c in cands]
-            picked = st.multiselect("이 로그에 해당하는 프로토콜 명세를 선택하세요",
+            def _clabel(i):
+                m = cands[i]["metadata"]
+                fn = os.path.basename(str(m.get("source_file") or m.get("doc_title") or "문서"))
+                sec = m.get("section") or m.get("page_no") or ""
+                snip = (cands[i].get("document", "")[:35].replace("\n", " ")).strip()
+                return f"[{i+1}] {fn} · {sec} · {snip}…"
+            picked = st.multiselect("이 로그에 해당하는 프로토콜 명세를 선택하세요 (파일명·섹션으로 구분)",
                                     options=list(range(len(cands))),
-                                    format_func=lambda i: labels[i], key="log_specs")
+                                    format_func=_clabel, key="log_specs")
             chosen = [cands[i] for i in picked]
-            with st.expander("후보 명세 원문"):
+            with st.expander("후보 명세 원문 (파일명·섹션·내용)"):
                 for i, c in enumerate(cands):
-                    st.markdown(f"**{labels[i]}**")
+                    m = c["metadata"]
+                    fn = os.path.basename(str(m.get("source_file") or "문서"))
+                    st.markdown(f"**[{i+1}] {fn}** · {m.get('section','')}")
                     st.code(c["document"][:1500])
             if st.button("확정 명세로 해석", key="log_explain") and chosen and analysis:
                 try:

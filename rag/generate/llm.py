@@ -14,6 +14,7 @@ import urllib.error
 from ..config import CONFIG
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_DANGLING_THINK_RE = re.compile(r"<think>.*$", re.DOTALL)   # 잘린 미완결 <think>
 
 
 class LLMError(RuntimeError):
@@ -55,4 +56,6 @@ class LLMClient:
                 raise LLMError(
                     f"LLM 호출 실패(주 {primary}, 폴백 {self.fallback}): {e2}"
                 ) from e2
-        return _THINK_RE.sub("", text).strip()
+        cleaned = _DANGLING_THINK_RE.sub("", _THINK_RE.sub("", text)).strip()
+        # <think>만 있고 실제 답이 비면(컨텍스트 초과로 잘림 등) 원문을 반환해 공백 답변 방지
+        return cleaned or text.strip()

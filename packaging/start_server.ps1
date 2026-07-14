@@ -16,6 +16,7 @@ $env:RAG_EMBED    = "bge-m3"                          # 정품 1024d
 $env:RAG_RERANKER = "C:\models\bge-reranker-v2-m3"    # USB로 반입한 리랭커 로컬 경로
 $env:RAG_LLM_TIMEOUT = "300"                          # GPU면 300, 느리면 상향
 $env:OLLAMA_HOST  = "http://127.0.0.1:11434"          # 클라이언트 접속용(시스템 0.0.0.0 설정 무시)
+$env:RAG_NUM_CTX  = "8192"                            # 표 다수 컨텍스트 수용(32k 모델). VRAM 여유시 16384/32768
 $Port = 8501
 # ------------------------------------------------------------------------
 

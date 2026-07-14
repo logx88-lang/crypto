@@ -19,8 +19,13 @@ SYSTEM_PROMPT = (
 
 
 def source_label(meta: dict) -> str:
-    """청크 메타 → 사람이 읽는 출처 표기 (문서명 · 위치)."""
-    parts = [meta.get("doc_title") or meta.get("source_file") or "문서"]
+    """청크 메타 → 사람이 읽는 출처 표기 (파일명 · 위치).
+
+    doc_title(첫 제목)은 '개요'처럼 문서 구분에 부적합 → **파일명**을 우선 표기.
+    """
+    import os
+    fname = meta.get("source_file") or meta.get("doc_title") or "문서"
+    parts = [os.path.basename(str(fname))]
     if meta.get("page_no"):
         parts.append(f"p.{meta['page_no']}")
     if meta.get("sheet_name"):
