@@ -34,19 +34,31 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
     """
     preview = "\n".join(log_text.splitlines()[:8])
     query = " ".join(p for p in (question, preview) if p).strip()
-    raw = retriever.search(query, top_k=max(top_k * 4, 20),
+    raw = retriever.search(query, top_k=max(top_k * 6, 30),
                            where={"doc_type": "protocol_spec"})
-    # (문서, 섹션) 기준 중복 제거 — 같은 섹션 반복 방지
-    seen, out = set(), []
-    for c in raw:
+
+    def _doc(c):
         m = c.get("metadata", {})
-        key = (m.get("doc_title", ""), m.get("section", ""))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(c)
+        return m.get("source_file") or m.get("doc_title") or ""
+
+    # 1차: 문서별 최상위 1개씩 — 관련 문서(발매/정산/충전 등)가 모두 후보에 뜨게
+    out, docs_used = [], set()
+    for c in raw:
+        d = _doc(c)
+        if d not in docs_used:
+            docs_used.add(d)
+            out.append(c)
+            if len(out) >= top_k:
+                return out
+    # 2차: 남은 슬롯을 (문서,섹션) 중복 제거하며 채움
+    seen = {(_doc(c), c.get("metadata", {}).get("section", "")) for c in out}
+    for c in raw:
         if len(out) >= top_k:
             break
+        key = (_doc(c), c.get("metadata", {}).get("section", ""))
+        if key not in seen:
+            seen.add(key)
+            out.append(c)
     return out
 
 

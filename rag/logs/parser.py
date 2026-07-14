@@ -138,7 +138,8 @@ def analyze_cmd_len_log(text: str, profile: ParsingProfile) -> dict:
         frames.append({
             "bytes": frame, "hex": " ".join(f"{x:02X}" for x in frame),
             "cmd": None, "cmd_ascii": cmd_ascii, "length": length,
-            "data": list(data), "data_ascii": bytes(data).decode("ascii", "replace"),
+            "data": list(data),
+            "data_ascii": "".join(chr(b) if 32 <= b < 127 else "." for b in data),
             "lrc": lrc, "valid": ok,
             "note": "" if ok else f"LRC 불일치(계산 0x{calc:02X}, 값 0x{lrc:02X})",
         })
