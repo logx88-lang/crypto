@@ -15,6 +15,7 @@ $env:RAG_LLM      = "qwen3_8b_ctx32998"              # 이 PC ollama list 의 �
 $env:RAG_EMBED    = "bge-m3"                          # 정품 1024d
 $env:RAG_RERANKER = "C:\models\bge-reranker-v2-m3"    # USB로 반입한 리랭커 로컬 경로
 $env:RAG_LLM_TIMEOUT = "300"                          # GPU면 300, 느리면 상향
+$env:OLLAMA_HOST  = "http://127.0.0.1:11434"          # 클라이언트 접속용(시스템 0.0.0.0 설정 무시)
 $Port = 8501
 # ------------------------------------------------------------------------
 

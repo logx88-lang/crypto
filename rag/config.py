@@ -13,6 +13,23 @@ def _env(key: str, default: str) -> str:
     return os.environ.get(key, default)
 
 
+def _normalize_host(h: str) -> str:
+    """Ollama 접속 URL 정규화. OLLAMA_HOST 가 바인딩 주소(0.0.0.0)나 스킴/포트 누락이어도 보정.
+    예: '0.0.0.0' / '0.0.0.0:11434' → 'http://127.0.0.1:11434'.
+    """
+    from urllib.parse import urlparse
+    h = (h or "").strip().rstrip("/")
+    if not h:
+        h = "http://127.0.0.1:11434"
+    if "://" not in h:
+        h = "http://" + h
+    h = h.replace("://0.0.0.0", "://127.0.0.1")   # 바인딩 주소는 접속 불가 → 루프백
+    u = urlparse(h)
+    if u.port is None:
+        h = f"{u.scheme}://{u.hostname or '127.0.0.1'}:11434"
+    return h
+
+
 @dataclass
 class Config:
     # --- 모델 (Ollama 태그) ---
@@ -21,7 +38,7 @@ class Config:
     embed_model: str = _env("RAG_EMBED", "bge-m3")               # 정품 bge-m3 (1024d) — 재반입 확정
     embed_dim: int = int(_env("RAG_EMBED_DIM", "1024"))
     reranker_path: str = _env("RAG_RERANKER", "BAAI/bge-reranker-v2-m3")  # HF repo id / 로컬경로 (CPU)
-    ollama_host: str = _env("OLLAMA_HOST", "http://localhost:11434")
+    ollama_host: str = _normalize_host(_env("OLLAMA_HOST", "http://127.0.0.1:11434"))
     num_ctx: int = int(_env("RAG_NUM_CTX", "4096"))
     llm_timeout: float = float(_env("RAG_LLM_TIMEOUT", "600"))   # CPU 추론 여유(GPU는 짧아도 됨)
     embed_timeout: float = float(_env("RAG_EMBED_TIMEOUT", "120"))
