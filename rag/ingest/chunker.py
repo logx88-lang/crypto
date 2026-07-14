@@ -81,8 +81,13 @@ def chunk_document(doc: ParsedDoc) -> list:
     for el in doc.elements:
         if el.kind == "table":
             flush_text()
+            # 표 희석 완화: 표 청크에 섹션/문서 제목을 접두로 붙여 검색 노출↑
+            # (예: "요청 전문" 질의가 그 섹션의 표 청크에 매칭되게)
+            ctx = el.location.get("section") or doc.doc_title or ""
+            prefix = f"[{ctx}]\n" if ctx else ""
             for piece in _split_table_md(el.text, cfg.table_max_chars):
-                chunks.append(make_chunk(piece, source_file=doc.source_file,
+                text = prefix + piece
+                chunks.append(make_chunk(text, source_file=doc.source_file,
                                          doc_title=doc.doc_title, doc_type=doc.doc_type,
                                          kind="table", location=el.location, index=idx))
                 idx += 1

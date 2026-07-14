@@ -51,18 +51,23 @@ class FeedbackLog:
             lines.append(f"## {i}. [{r.get('kind')}] {r.get('category','')} "
                          f"(심각도: {r.get('severity','')})  · {r.get('ts','')}")
             if r.get("question"):
-                lines.append(f"- **질문(비식별)**: {r['question']}")
+                lines.append(f"- **질문**: {r['question']}")
             if r.get("answer"):
-                lines.append(f"- **답변(비식별)**: {r['answer']}")
+                lines.append(f"- **답변**: {r['answer']}")
             if r.get("note"):
-                lines.append(f"- **메모(비식별)**: {r['note']}")
+                lines.append(f"- **메모**: {r['note']}")
+            cs = r.get("context_summary")
+            if cs:
+                lines.append(f"- **검색 근거 요약**: 총 {cs.get('n',0)}개 "
+                             f"(표 {cs.get('table',0)} / 텍스트 {cs.get('text',0)})")
             for j, c in enumerate(r.get("contexts", []), 1):
                 m = c.get("metadata", {})
                 shape = c.get("table_shape")
                 tag = f"표 {shape['rows']}행×{shape['cols']}열" if shape and shape.get("is_table") \
                     else m.get("kind", "text")
-                loc = m.get("page_no") or m.get("slide_no") or m.get("sheet_name") or ""
-                lines.append(f"  - 근거{j} [{tag}] {m.get('doc_type','')} {loc}")
+                loc = m.get("page_no") or m.get("slide_no") or m.get("sheet_name") \
+                    or m.get("section") or ""
+                lines.append(f"  - 근거{j} [{tag}] {m.get('doc_title','')} {loc}")
             lines.append("")
         os.makedirs(self.dir, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:

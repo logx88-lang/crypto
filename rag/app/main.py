@@ -14,7 +14,7 @@ if ROOT not in sys.path:
 import streamlit as st
 
 from rag.config import CONFIG
-from rag.feedback import FeedbackLog, sanitize_record
+from rag.feedback import FeedbackLog, sanitize_record, readable_record
 
 
 # --- 리소스 캐시 ----------------------------------------------------------
@@ -49,24 +49,24 @@ def _now():
 
 def feedback_form(kind: str, prefill: dict, key: str):
     """개선기록 캡처 폼 — 저장 전 비식별화 미리보기 제공."""
-    with st.expander("🚩 개선 기록 (반출용으로 **자동 비식별화**되어 저장)"):
+    with st.expander("🚩 개선 기록"):
         cat = st.selectbox("유형", CATS[kind], key=f"{key}_cat")
         sev = st.radio("심각도", ["낮음", "중간", "높음"], index=1, horizontal=True,
                        key=f"{key}_sev")
-        note = st.text_area("증상/메모 — 구조·증상 위주로. (저장 시 자동 비식별화됨)",
+        note = st.text_area("증상/메모 — 무엇이 잘못됐는지 구체적으로 적어주세요.",
                             key=f"{key}_note")
-        san_note = st.checkbox("메모도 비식별화(권장)", value=True, key=f"{key}_san")
+        redact = st.checkbox("🔒 비식별화(외부 반출 시 민감하면 체크)", value=False,
+                             key=f"{key}_redact")
         record = {"ts": _now(), "kind": kind, "category": cat, "severity": sev,
                   "question": prefill.get("question", ""),
                   "answer": prefill.get("answer", ""),
-                  "note": note, "sanitize_note": san_note,
-                  "contexts": prefill.get("contexts", [])}
-        safe = sanitize_record(record)
-        if st.checkbox("🔍 저장·반출될 비식별 내용 미리보기(실데이터 없음 확인)", key=f"{key}_pv"):
-            st.json(safe)
+                  "note": note, "contexts": prefill.get("contexts", [])}
+        rec = sanitize_record(record) if redact else readable_record(record)
+        if st.checkbox("🔍 저장될 내용 미리보기", key=f"{key}_pv"):
+            st.json(rec)
         if st.button("개선 기록 저장", key=f"{key}_save"):
-            FeedbackLog().add(safe, already_sanitized=True)
-            st.success("비식별화되어 저장되었습니다. '개선 기록' 탭에서 반출하세요.")
+            FeedbackLog().add(rec, already_sanitized=True)
+            st.success(("비식별화되어 " if redact else "") + "저장되었습니다. '개선 기록' 탭에서 반출하세요.")
 
 
 st.set_page_config(page_title="사내 지식 RAG", layout="wide")
@@ -184,8 +184,8 @@ with tab_log:
 # ===========================================================================
 with tab_fb:
     st.subheader("개선 기록 — 비식별화 반출")
-    st.caption("폐쇄망 밖에서 개선을 진행할 수 있도록, 실제 프로토콜 값·명칭은 가명으로 치환되고 "
-               "표는 형태(행×열)만 남깁니다. 아래 내용이 그대로 반출됩니다.")
+    st.caption("QA/로그 결과 아래 '🚩 개선 기록'에서 남긴 내용입니다. 기본은 원문 저장이며, "
+               "저장 시 '🔒 비식별화'를 체크하면 값·명칭이 가명으로 치환됩니다. 반출 전 내용을 확인하세요.")
     log = FeedbackLog()
     records = log.load_all()
     st.write(f"기록 건수: **{len(records)}**")
@@ -194,13 +194,12 @@ with tab_fb:
             st.markdown(f"**{r.get('category','')}** · {r.get('severity','')} · "
                         f"[{r.get('kind')}] · {r.get('ts','')}")
             if r.get("question"):
-                st.caption(f"질문(비식별): {r['question'][:160]}")
+                st.caption(f"질문: {r['question'][:160]}")
             if r.get("note"):
-                st.caption(f"메모(비식별): {r['note'][:160]}")
-            for c in r.get("contexts", []):
-                s = c.get("table_shape")
-                if s and s.get("is_table"):
-                    st.caption(f"  · 표 {s['rows']}행×{s['cols']}열")
+                st.caption(f"메모: {r['note'][:160]}")
+            cs = r.get("context_summary")
+            if cs:
+                st.caption(f"검색 근거: 총 {cs.get('n',0)}개 (표 {cs.get('table',0)} / 텍스트 {cs.get('text',0)})")
         if st.button("📤 Markdown 내보내기(USB 반출용)"):
             path = log.export_markdown()
             st.success(f"내보냄: `{path}` — 이 파일만 반출하세요(실데이터 없음).")

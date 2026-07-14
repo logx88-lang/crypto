@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 
 # 토큰 우선순위: 0x-HEX → 브라켓HEX([NN]) → 식별자(RS-485/COIN_IN) → 한글 → 숫자
@@ -97,30 +98,61 @@ def sanitize_metadata(meta: dict, pseudo: Pseudonymizer) -> dict:
     return out
 
 
-def sanitize_record(record: dict) -> dict:
-    """개선기록 레코드 전체를 비식별화(레코드당 매핑 1개 공유).
+_KEEP_META = ("kind", "doc_type", "page_no", "slide_no", "sheet_name",
+              "section", "source_file", "doc_title")
 
-    구조 메타(카테고리/심각도/표형태/페이지 등)는 유지, 내용은 전부 가명화.
-    """
+
+def _context_entry(c: dict, pseudo: Pseudonymizer = None) -> dict:
+    """컨텍스트 1건 → 구조 메타 + (가명화 or 원문) 문서. 표는 형태(행×열) 부착."""
+    meta = c.get("metadata", {}) or {}
+    doc = c.get("document", "") or ""
+    if pseudo is not None:
+        entry = {"metadata": sanitize_metadata(meta, pseudo),
+                 "document": sanitize(doc, pseudo)}
+    else:
+        m = {k: meta[k] for k in _KEEP_META if meta.get(k) not in (None, "")}
+        if m.get("source_file"):
+            m["source_file"] = os.path.basename(str(m["source_file"]))
+        entry = {"metadata": m, "document": doc[:800]}   # 원문(과대 방지 트림)
+    if meta.get("kind") == "table":
+        entry["table_shape"] = table_shape(doc)          # 값 무관 형태
+    return entry
+
+
+def _structural_summary(contexts: list) -> dict:
+    """검색된 근거의 진단 요약(표 유무 등) — 표 희석 진단에 유용."""
+    kinds = [(c.get("metadata", {}) or {}).get("kind") for c in (contexts or [])]
+    return {"n": len(kinds), "table": kinds.count("table"), "text": kinds.count("text")}
+
+
+def sanitize_record(record: dict) -> dict:
+    """개선기록 레코드 전체를 비식별화(레코드당 매핑 1개 공유)."""
     p = Pseudonymizer()
+    note = record.get("note", "")
     out = {
         "ts": record.get("ts"),
         "kind": record.get("kind"),
         "category": record.get("category"),      # 구조 enum(안전)
         "severity": record.get("severity"),      # 구조 enum(안전)
         "question": sanitize(record.get("question", ""), p),
-        "note": sanitize(record.get("note", ""), p) if record.get("sanitize_note", True)
-        else record.get("note", ""),
+        "note": sanitize(note, p) if record.get("sanitize_note", True) else note,
         "answer": sanitize(record.get("answer", ""), p),
+        "context_summary": _structural_summary(record.get("contexts", [])),
+        "contexts": [_context_entry(c, p) for c in record.get("contexts", []) or []],
     }
-    ctxs = []
-    for c in record.get("contexts", []) or []:
-        meta = c.get("metadata", {})
-        doc = c.get("document", "")
-        entry = {"metadata": sanitize_metadata(meta, p),
-                 "document": sanitize(doc, p)}
-        if meta.get("kind") == "table":
-            entry["table_shape"] = table_shape(doc)   # 원문 기준 형태(값 무관)
-        ctxs.append(entry)
-    out["contexts"] = ctxs
     return out
+
+
+def readable_record(record: dict) -> dict:
+    """비식별화 없이 원문 그대로(구조 요약·표형태 포함). 사용자 정책=원문 저장 시."""
+    return {
+        "ts": record.get("ts"),
+        "kind": record.get("kind"),
+        "category": record.get("category"),
+        "severity": record.get("severity"),
+        "question": record.get("question", ""),
+        "note": record.get("note", ""),
+        "answer": record.get("answer", ""),
+        "context_summary": _structural_summary(record.get("contexts", [])),
+        "contexts": [_context_entry(c, None) for c in record.get("contexts", []) or []],
+    }

@@ -30,10 +30,24 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
     """로그 단서 + 질문으로 프로토콜 명세 후보를 하이브리드 검색.
 
     자동 해석 금지 — 반환 후보는 UI 확인 단계 입력이다.
+    같은 (문서·섹션) 중복을 제거하고, 표 청크를 우선해 후보 다양성을 확보한다.
     """
     preview = "\n".join(log_text.splitlines()[:8])
     query = " ".join(p for p in (question, preview) if p).strip()
-    return retriever.search(query, top_k=top_k, where={"doc_type": "protocol_spec"})
+    raw = retriever.search(query, top_k=max(top_k * 4, 20),
+                           where={"doc_type": "protocol_spec"})
+    # (문서, 섹션) 기준 중복 제거 — 같은 섹션 반복 방지
+    seen, out = set(), []
+    for c in raw:
+        m = c.get("metadata", {})
+        key = (m.get("doc_title", ""), m.get("section", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+        if len(out) >= top_k:
+            break
+    return out
 
 
 # --- 3. 파싱결과 요약 (LLM/UI 표시용, 컨텍스트 초과 방지 §7-3) --------------
