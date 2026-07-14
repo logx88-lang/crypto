@@ -81,9 +81,9 @@ def chunk_document(doc: ParsedDoc) -> list:
     for el in doc.elements:
         if el.kind == "table":
             flush_text()
-            # 표 희석 완화: 표 청크에 섹션/문서 제목을 접두로 붙여 검색 노출↑
-            # (예: "요청 전문" 질의가 그 섹션의 표 청크에 매칭되게)
-            ctx = el.location.get("section") or doc.doc_title or ""
+            # 표 희석 완화: 표 청크에 제목 경로(상위→하위)를 접두로 붙여 검색 노출↑
+            # (예: "Card 정보 요청" 질의가 'Card 정보 요청 > 요청전문'의 표에 매칭되게)
+            ctx = el.location.get("section_path") or el.location.get("section") or doc.doc_title or ""
             prefix = f"[{ctx}]\n" if ctx else ""
             for piece in _split_table_md(el.text, cfg.table_max_chars):
                 text = prefix + piece

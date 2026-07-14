@@ -74,6 +74,15 @@ def parse_docx(path: str) -> ParsedDoc:
     elements: list = []
     section = ""
     first_heading = ""
+    heading_stack: list = []   # [(level, text)] — 제목 계층 추적
+
+    def _loc():
+        loc = {"section": section}
+        path = " > ".join(t for _l, t in heading_stack)
+        if path:
+            loc["section_path"] = path   # 상위→하위 제목 경로(표 검색 노출용)
+        return loc
+
     for child in doc.element.body.iterchildren():
         if isinstance(child, CT_P):
             p = Paragraph(child, doc)
@@ -82,16 +91,20 @@ def parse_docx(path: str) -> ParsedDoc:
                 continue
             style = (p.style.name or "") if p.style else ""
             if style.startswith("Heading") or style.startswith("Title"):
+                tail = style.split()[-1] if style.split() else ""
+                lvl = int(tail) if tail.isdigit() else 1
+                heading_stack = [(l, t) for (l, t) in heading_stack if l < lvl]
+                heading_stack.append((lvl, txt))
                 section = txt
                 if not first_heading:
                     first_heading = txt
-            elements.append(Element("text", txt, {"section": section}))
+            elements.append(Element("text", txt, _loc()))
         elif isinstance(child, CT_Tbl):
             t = Table(child, doc)
             rows = [[c.text for c in row.cells] for row in t.rows]
             md = table_to_markdown(rows, header=True)
             if md:
-                elements.append(Element("table", md, {"section": section}))
+                elements.append(Element("table", md, _loc()))
     title = first_heading or _title_from_name(path)
     sample = "\n".join(e.text[:200] for e in elements[:8])
     return ParsedDoc(source_file=os.path.basename(path), doc_title=title,
