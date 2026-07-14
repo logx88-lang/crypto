@@ -38,3 +38,5 @@ packaging/client/*.spec
 Thumbs.db
 .idea/
 .vscode/
+packaging/client/.nbuild/
+packaging/client/dist/
