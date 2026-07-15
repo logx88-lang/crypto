@@ -114,9 +114,9 @@ def h_log_candidates(body):
 
 def h_log_analyze(body):
     from ..logs.generic import analyze_by_spec
-    from ..logs.workflow import summarize_analysis, explain, extract_command_names
+    from ..logs.workflow import summarize_analysis, explain, resolve_command_names
     from ..logs.detect import detect_log_type
-    _retr, llm = _retriever_llm()
+    retr, llm = _retriever_llm()
     text = body.get("log_text", "")
     spec_docs = body.get("spec_docs", []) or []
     spec_text = "\n\n".join(spec_docs)
@@ -126,8 +126,11 @@ def h_log_analyze(body):
         from ..logs.parser import analyze_text_log
         parsed = analyze_text_log(text)
         parsed["derived"] = False
-    summary = summarize_analysis(parsed, cmd_names=extract_command_names(spec_text))
-    out = explain(llm, q, parsed, [{"document": d, "metadata": {}} for d in body.get("spec_docs", [])])
+    # 관측 명령을 정의하는 명령표를 검색으로 찾아 이름 매핑 확보(문서 추측 없이).
+    cmd_names = resolve_command_names(retr, parsed)
+    summary = summarize_analysis(parsed, cmd_names=cmd_names)
+    out = explain(llm, q, parsed, [{"document": d, "metadata": {}} for d in spec_docs],
+                  cmd_names=cmd_names)
     return {"log_type": detect_log_type(text), "derived": parsed.get("derived", False),
             "profile": parsed.get("profile"), "summary": summary, "out": out,
             "total": parsed.get("total"), "valid_count": parsed.get("valid_count")}

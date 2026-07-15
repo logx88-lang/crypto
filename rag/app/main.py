@@ -259,8 +259,13 @@ with tab_log:
                             if parsed.get("derived"):
                                 use = parsed
                                 st.session_state["log_profile"] = parsed.get("profile")
+                        # 관측 명령을 정의하는 명령표를 검색으로 찾아 이름 매핑 확보(문서 추측 X)
+                        from rag.logs.workflow import resolve_command_names
+                        _names = resolve_command_names(retriever, use)
+                        st.session_state["log_cmd_names"] = _names
                         st.session_state["log_parsed"] = use
-                        st.session_state["log_out"] = explain(llm, log_q, use, chosen)
+                        st.session_state["log_out"] = explain(llm, log_q, use, chosen,
+                                                              cmd_names=_names)
                 except Exception as e:
                     st.error(f"해석 실패: {e}")
             elif not picked:
@@ -272,9 +277,7 @@ with tab_log:
         prof = st.session_state.get("log_profile")
         parsed = st.session_state.get("log_parsed")
         if parsed:
-            from rag.logs.workflow import extract_command_names
-            _cmd_names = extract_command_names(
-                "\n".join(c.get("document", "") for c in chosen)) if chosen else {}
+            _cmd_names = st.session_state.get("log_cmd_names") or {}
             st.markdown("#### 파싱 결과")
             st.code(summarize_analysis(parsed, cmd_names=_cmd_names))
         if prof:

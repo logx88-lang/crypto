@@ -61,6 +61,63 @@ def extract_command_names(spec_text: str) -> dict:
     return out
 
 
+def _observed_cmd_keys(analysis: dict) -> set:
+    """파싱된 프레임에서 관측된 명령 키(ascii 대문자 / hex '0X..') 집합."""
+    keys = set()
+    for fr in analysis.get("frames", []):
+        if fr.get("cmd_ascii"):
+            keys.add(fr["cmd_ascii"].strip().upper())
+        elif isinstance(fr.get("cmd"), int):
+            keys.add(f"0X{fr['cmd']:X}")
+    return keys
+
+
+def _pick_command_names(analysis: dict, spec_chunks: list) -> dict:
+    """관측 명령과 가장 많이 겹치는 명세 청크의 명령표를 선택(오염 배제).
+
+    여러 문서·표가 섞여도 로그의 실제 명령을 정의한 표를 고른다. 겹침이 없으면
+    전체 청크에서 추출(폴백)."""
+    observed = _observed_cmd_keys(analysis)
+    best, best_names = 0, {}
+    for c in spec_chunks:
+        nm = extract_command_names(c.get("document", ""))
+        ov = len(set(nm) & observed) if observed else 0
+        if ov > best:
+            best, best_names = ov, nm
+    if best_names:
+        return best_names
+    return extract_command_names("\n".join(c.get("document", "") for c in spec_chunks))
+
+
+def resolve_command_names(retriever, analysis: dict, where: dict = None) -> dict:
+    """로그에서 관측된 명령을 '정의하는' 명령표를 검색으로 찾아 ID→이름 매핑 반환.
+
+    문서를 추측하지 않고, 파싱된 실제 명령(SD/CD… 또는 0x12…)과 가장 많이 겹치는 명령표를
+    고른다 → 어떤 프로토콜/문서든(레지스터맵·타문서 오염 없이) 알맞은 이름표를 얻는다.
+    """
+    observed = _observed_cmd_keys(analysis)
+    if not observed:
+        return {}
+    w = {"doc_type": "protocol_spec"}
+    if where:
+        w.update(where)
+    # 관측된 명령 토큰(SD/CD… 또는 0x12…)을 질의에 넣어 그 명령을 정의한 표를 정확히 집는다.
+    toks = " ".join(("0x" + k[2:]) if k.startswith("0X") else k for k in sorted(observed))
+    query = (toks + " 명령 코드 목록 명령어 일람 command code list command table "
+             "Protocol Control Code List 구분 ID 이름 설명")
+    try:
+        hits = retriever.search(query, top_k=30, where=w)
+    except Exception:
+        hits = []
+    best, best_names = 0, {}
+    for c in hits:
+        nm = extract_command_names(c.get("document", ""))
+        ov = len(set(nm) & observed)
+        if ov > best:
+            best, best_names = ov, nm
+    return best_names
+
+
 def _looks_like_cmd_list(doc: str) -> bool:
     """명령 ID↔이름 매핑 행("SD" | LSAM 자료 요청 …)이 3개 이상 파싱되는 청크인지 판정.
 
@@ -124,18 +181,25 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
     # 3차: 명령 코드 목록(명령 ID↔이름 매핑) 청크를 최소 1개 보강 —
     # '특정 명령이 언제 발생?' 류 질의에서 로그의 명령 ID를 이름으로 해석하려면 필수인데,
     # 의미 검색만으론 상위에 안 뜨는 경우가 많다. 후보에 없으면 별도 검색해 덧붙인다.
-    if not any(_looks_like_cmd_list(c.get("document", "")) for c in out):
+    # 로그의 주(主) 문서(최상위 후보의 원본) 자신의 명령표가 후보에 없으면 보강한다.
+    # 타(他)문서 명령표(예: 다른 프로토콜의 레지스터맵)가 이미 있어도, 주 문서 명령표를 넣어야
+    # 로그의 실제 명령 ID를 올바른 이름으로 해석할 수 있다.
+    target_doc = _doc(raw[0]) if raw else None
+    has_primary_cmd = any(_looks_like_cmd_list(c.get("document", "")) and _doc(c) == target_doc
+                          for c in out)
+    if target_doc and not has_primary_cmd:
+        cw = dict(where)
+        cw["source_file"] = target_doc
         try:
             extra = retriever.search(
                 "명령 코드 목록 명령어 일람 명령 정의 command code list command table "
                 "Protocol Control Code List CMD 코드 이름 설명",
-                top_k=12, where=where)
+                top_k=12, where=cw)
         except Exception:
             extra = []
-        for c in extra:
-            if _looks_like_cmd_list(c.get("document", "")):
-                out.append(c)     # top_k 초과해도 명령표는 항상 노출
-                break
+        hit = next((c for c in extra if _looks_like_cmd_list(c.get("document", ""))), None)
+        if hit:
+            out.append(hit)            # top_k 초과해도 주 문서 명령표는 항상 노출
     return out
 
 
@@ -205,7 +269,8 @@ def summarize_analysis(analysis: dict, max_frames: int = 40, cmd_names: dict = N
 
 
 # --- 4. LLM 해석 메시지 조립 ----------------------------------------------
-def build_log_messages(question: str, analysis: dict, spec_chunks: list) -> list:
+def build_log_messages(question: str, analysis: dict, spec_chunks: list,
+                       cmd_names: dict = None) -> list:
     from ..generate.prompt import source_label  # 지연 임포트
 
     # 명령표(구분|ID|설명) 청크를 앞에 배치 → 명령 이름 매핑이 프롬프트 상단에 오게.
@@ -218,32 +283,36 @@ def build_log_messages(question: str, analysis: dict, spec_chunks: list) -> list
     spec_ctx = "\n\n".join(spec_blocks) or "(확정 명세 없음)"
 
     # 명세에서 명령 ID→이름을 결정적으로 추출해 파싱 요약에 직접 주입(LLM 교차참조 불필요).
-    cmd_names = extract_command_names("\n".join(c.get("document", "") for c in spec_chunks))
+    # 명령 이름표: 호출자가 검색으로 찾아준 것(resolve_command_names) 우선, 없으면 청크에서 선택.
+    if cmd_names is None:
+        cmd_names = _pick_command_names(analysis, spec_chunks)
     parsed = summarize_analysis(analysis, cmd_names=cmd_names)
 
     system = (
         "/no_think\n"
-        "당신은 통신 프로토콜 로그 분석가입니다. 아래 [확정 명세]의 패킷 구조·필드·명령 코드에만"
-        " 근거하여 [파싱 결과] 로그를 한국어 공식체로 해석하십시오.\n"
-        "- [파싱 결과]의 '명령별 발생 시각'에는 로그에서 실제로 관측된 명령 ID(코드)와 (명세에서 찾은)"
-        " 명령 이름, 그리고 발생 시각이 있습니다. 명령·이름·시각은 반드시 이 값을 그대로 사용하고,"
-        " 명령 코드/이름/시각을 지어내지 마십시오.\n"
-        "- 질문이 명령을 이름이나 코드로 지칭하면, [파싱 결과]의 '명령별 발생 시각'에서 같은(또는 의미가"
-        " 가장 가까운) 항목을 찾아 그 발생 시각/횟수를 답하십시오. 표기가 조금 달라도 같은 명령이면 연결합니다.\n"
-        "- 해당 명령이 파싱 결과에 없으면 '해당 명령이 로그에 관측되지 않음'이라고 답하십시오.\n"
-        "- 각 해석에 근거 명세를 [명세N]으로 표기합니다.\n"
+        "당신은 통신 프로토콜 로그 분석가입니다. 아래 [파싱 결과]를 한국어 공식체로 해석하십시오.\n"
+        "★ 가장 중요: [파싱 결과]의 '명령별 발생 시각'은 이미 분석이 끝난 **확정 사실**입니다. 각 줄은"
+        " `'명령ID' (명령 이름): N회 @ 시각들` 형식이며, 괄호 안 이름이 그 명령의 **정답 이름**입니다.\n"
+        "- 명령 이름·코드·시각·횟수는 오직 이 '명령별 발생 시각' 줄에서만 가져오십시오. [참고 명세]의 다른"
+        " 표를 보고 명령 코드를 **다시 찾거나 바꾸거나 지어내지 마십시오**.\n"
+        "- 질문이 특정 명령(이름 또는 코드)을 물으면, '명령별 발생 시각'에서 그 이름/코드와 같거나 의미가"
+        " 가장 가까운 줄을 하나 고르고, 그 줄의 시각·횟수를 그대로 답하십시오. '정보 요청'과 '자료 요청',"
+        " '조회'와 '요청'처럼 표기가 달라도 뜻이 같으면 같은 명령으로 연결합니다.\n"
+        "- '명령별 발생 시각'에 그 명령이 전혀 없을 때만 '해당 명령이 로그에 관측되지 않음'이라고 답합니다.\n"
+        "- [참고 명세]는 필드 구조·의미 보충 설명에만 쓰고, 명령 목록의 근거로 삼지 마십시오.\n"
         "- 체크섬 불일치(✗) 프레임은 이상 징후로 명시합니다."
     )
     user = (
-        f"[확정 명세]\n{spec_ctx}\n\n"
         f"[파싱 결과]\n{parsed}\n\n"
-        f"[질문]\n{question or '이 로그의 통신 흐름을 명세에 근거해 설명하십시오.'}"
+        f"[참고 명세]\n{spec_ctx}\n\n"
+        f"[질문]\n{question or '이 로그의 통신 흐름을 설명하십시오.'}"
     )
     return [{"role": "system", "content": system},
             {"role": "user", "content": user}]
 
 
-def explain(llm, question: str, analysis: dict, spec_chunks: list) -> str:
-    """확정 명세 기반 LLM 해석 실행."""
-    messages = build_log_messages(question, analysis, spec_chunks)
+def explain(llm, question: str, analysis: dict, spec_chunks: list,
+            cmd_names: dict = None) -> str:
+    """확정 명세 기반 LLM 해석 실행. cmd_names: 검색으로 찾은 명령 이름표(선택)."""
+    messages = build_log_messages(question, analysis, spec_chunks, cmd_names=cmd_names)
     return llm.chat(messages)
