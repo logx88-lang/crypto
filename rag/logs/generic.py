@@ -81,25 +81,39 @@ def _checksum(kind, data):
     return None
 
 
-def reconstruct_stream(text: str, profile: dict) -> list:
-    """로그 전체에서 (타임스탬프/방향/명령표기 제거 후) hex 바이트 스트림 복원."""
+def reconstruct_stream(text: str, profile: dict):
+    """로그 전체에서 hex 바이트 스트림 복원 → (stream, times) 반환.
+
+    times[k] = 스트림 k번째 바이트가 나온 줄의 타임스탬프 문자열(없으면 "").
+    타임스탬프는 '제거'하기 전에 먼저 추출해 각 바이트에 꼬리표로 붙인다 →
+    프레임이 언제 발생했는지(시간 질의) 답할 수 있게 한다.
+    """
     token = _TOKENS.get(profile.get("byte_token", "bracket"), TOK_BRACKET)
     strips = list(profile.get("strip_regexes") or [])
-    if profile.get("timestamp_regex"):
-        strips.append(profile["timestamp_regex"])
-    out = []
+    ts_rx = profile.get("timestamp_regex")
+    out, times = [], []
     for ln in text.splitlines():
+        ts = ""
+        if ts_rx:
+            try:
+                m = re.search(ts_rx, ln)
+                if m:
+                    ts = m.group(0).strip()
+            except re.error:
+                pass
         body = ln
-        for rx in strips:
+        for rx in strips + ([ts_rx] if ts_rx else []):
             try:
                 body = re.sub(rx, " ", body)
             except re.error:
                 pass
-        out.extend(int(h, 16) for h in re.findall(token, body))
-    return out
+        bs = [int(h, 16) for h in re.findall(token, body)]
+        out.extend(bs)
+        times.extend([ts] * len(bs))
+    return out, times
 
 
-def parse_length(stream: list, profile: dict) -> dict:
+def parse_length(stream: list, profile: dict, times: list = None) -> dict:
     """length 프레이밍: Command + Length + Data + (checksum trailer)."""
     cmd = profile.get("cmd", {"offset": 0, "size": 2, "type": "ascii"})
     lenf = profile.get("length", {"offset": 2, "size": 2, "endian": "big"})
@@ -131,6 +145,7 @@ def parse_length(stream: list, profile: dict) -> dict:
             "bytes": fr, "hex": " ".join(f"{x:02X}" for x in fr),
             "cmd": None, "cmd_ascii": cmd_ascii, "length": length,
             "data": list(data), "data_ascii": ascii_dump(data),
+            "time": (times[i] if times and i < len(times) else ""),
             "valid": ok, "note": note,
         })
         valid += int(ok)
@@ -139,7 +154,7 @@ def parse_length(stream: list, profile: dict) -> dict:
             "valid_count": valid, "total": len(frames)}
 
 
-def parse_delimited(stream: list, profile: dict) -> dict:
+def parse_delimited(stream: list, profile: dict, times: list = None) -> dict:
     """delimited 프레이밍: start_byte ~ end_byte 로 프레임 분할."""
     sb, eb = profile.get("start_byte"), profile.get("end_byte")
     chk = profile.get("checksum", {"type": "none"})
@@ -163,7 +178,9 @@ def parse_delimited(stream: list, profile: dict) -> dict:
             if not ok:
                 note = f"{chk['type'].upper()} 불일치"
         frames.append({"bytes": fr, "hex": " ".join(f"{x:02X}" for x in fr),
-                       "cmd": fr[2] if len(fr) > 2 else None, "valid": ok, "note": note})
+                       "cmd": fr[2] if len(fr) > 2 else None,
+                       "time": (times[i] if times and i < len(times) else ""),
+                       "valid": ok, "note": note})
         valid += int(ok)
         i = j + 1
     return {"log_type": "hex", "profile": profile, "frames": frames,
@@ -172,10 +189,10 @@ def parse_delimited(stream: list, profile: dict) -> dict:
 
 def analyze_with_profile(text: str, profile: dict) -> dict:
     """도출된 설정(dict)으로 로그 파싱 — 하드코딩 없는 범용 경로."""
-    stream = reconstruct_stream(text, profile)
+    stream, times = reconstruct_stream(text, profile)
     if profile.get("framing") == "delimited":
-        return parse_delimited(stream, profile)
-    return parse_length(stream, profile)
+        return parse_delimited(stream, profile, times)
+    return parse_length(stream, profile, times)
 
 
 # ---------------------------------------------------------------------------

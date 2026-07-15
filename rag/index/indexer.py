@@ -18,6 +18,17 @@ from ..ingest import parse_file, chunk_document, SUPPORTED_EXTS
 # ---------------------------------------------------------------------------
 # 순수 로직 (Ollama 불필요, 단위 테스트 대상)
 # ---------------------------------------------------------------------------
+def is_ignored_file(name: str) -> bool:
+    """인덱싱/목록에서 제외할 파일명 판정.
+
+    - Office 잠금·임시 파일: `~$문서.docx` (대상 파일을 누가 열고 있으면 생성)
+    - LibreOffice 잠금: `.~lock.문서.docx#`
+    - 편집기 백업/숨김 파일: `~`·`.` 로 시작
+    이런 파일은 열려 있어 읽기 실패(공유 위반)하거나 실데이터가 아니므로 스캔 대상에서 뺀다.
+    """
+    return name.startswith("~$") or name.startswith("~") or name.startswith(".")
+
+
 def diff_manifest(old_manifest: dict, current: dict) -> tuple:
     """(to_index, to_delete). current: {source_file: {content_hash, mtime}}.
 
@@ -45,6 +56,8 @@ def list_documents(data_dir: str = None) -> list:
         for root, dirs, files in os.walk(data_dir):
             dirs[:] = [d for d in dirs if d not in reserved]
             for f in files:
+                if is_ignored_file(f):
+                    continue
                 if "." in f and f.rsplit(".", 1)[-1].lower() in SUPPORTED_EXTS:
                     rel = os.path.relpath(os.path.join(root, f), data_dir)
                     out.append(rel.replace("\\", "/"))
@@ -106,6 +119,8 @@ class Indexer:
         for root, dirs, files in os.walk(self.data_dir):
             dirs[:] = [d for d in dirs if d not in reserved]   # 인덱스/피드백 산출물 제외
             for name in files:
+                if is_ignored_file(name):        # ~$ 잠금/임시·숨김 파일 제외
+                    continue
                 ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
                 if ext not in SUPPORTED_EXTS:
                     continue

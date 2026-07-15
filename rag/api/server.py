@@ -114,18 +114,19 @@ def h_log_candidates(body):
 
 def h_log_analyze(body):
     from ..logs.generic import analyze_by_spec
-    from ..logs.workflow import summarize_analysis, explain
+    from ..logs.workflow import summarize_analysis, explain, extract_command_names
     from ..logs.detect import detect_log_type
     _retr, llm = _retriever_llm()
     text = body.get("log_text", "")
-    spec_text = "\n\n".join(body.get("spec_docs", []) or [])
+    spec_docs = body.get("spec_docs", []) or []
+    spec_text = "\n\n".join(spec_docs)
     q = body.get("question", "")
     parsed = analyze_by_spec(text, spec_text, llm) if spec_text else {"derived": False}
     if not parsed.get("derived"):
         from ..logs.parser import analyze_text_log
         parsed = analyze_text_log(text)
         parsed["derived"] = False
-    summary = summarize_analysis(parsed)
+    summary = summarize_analysis(parsed, cmd_names=extract_command_names(spec_text))
     out = explain(llm, q, parsed, [{"document": d, "metadata": {}} for d in body.get("spec_docs", [])])
     return {"log_type": detect_log_type(text), "derived": parsed.get("derived", False),
             "profile": parsed.get("profile"), "summary": summary, "out": out,

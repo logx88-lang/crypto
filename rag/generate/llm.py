@@ -30,18 +30,31 @@ class LLMClient:
         self.num_ctx = num_ctx or CONFIG.num_ctx
         self.timeout = timeout or CONFIG.llm_timeout
 
-    def _post(self, model: str, messages: list) -> str:
+    def _post(self, model: str, messages: list, think: bool = False) -> str:
         payload = {
             "model": model, "messages": messages, "stream": False,
             "keep_alive": "10m",   # 호출 간 모델 상주 유지(CPU 재적재 회피)
             "options": {"num_ctx": self.num_ctx, "temperature": 0.0},
         }
+        if think is not None:
+            payload["think"] = think   # 사고 비활성화 → 생성 예산을 답변에 온전히 사용
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(f"{self.host}/api/chat", data=data,
                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            out = json.loads(resp.read().decode("utf-8"))
-        return out.get("message", {}).get("content", "")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                out = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            # think 파라미터 미지원 모델(400 등) → think 없이 1회 재시도
+            if think is not None and e.code < 500:
+                return self._post(model, messages, think=None)
+            raise
+        msg = out.get("message", {})
+        content = msg.get("content", "")
+        # content 가 비면(사고만 하고 답이 잘림 등) thinking 필드라도 반환해 공백 답변 방지
+        if not (content or "").strip():
+            content = msg.get("thinking", "") or ""
+        return content
 
     def chat(self, messages: list, model: str = None) -> str:
         primary = model or self.model

@@ -154,11 +154,15 @@ with tab_qa:
     qa_files = _tree_scope("📂 범위 선택 (폴더/파일 체크 · 미선택=전체)", "qa_scope")
     query = st.text_input("질문", key="qa_query",
                           placeholder="예: XM-200 코인 투입 명령 코드는?")
+    n_src = st.slider("참고할 근거(출처) 개수", 1, 10, CONFIG.final_k, key="qa_topk",
+                      help="검색·리랭킹 후 답변 생성에 넣을 상위 근거 청크 수. 많을수록 폭넓지만 "
+                           "컨텍스트가 커져 느려지고 답변이 흐려질 수 있습니다.")
     if st.button("검색", key="qa_btn") and query.strip():
         try:
             with st.spinner("검색·리랭킹·생성 중…"):
                 _w = {"rel_path": {"$in": qa_files}} if qa_files else None
-                st.session_state["qa_result"] = get_pipeline().answer(query.strip(), where=_w)
+                st.session_state["qa_result"] = get_pipeline().answer(
+                    query.strip(), where=_w, final_k=n_src)
                 st.session_state["qa_q"] = query.strip()
         except Exception as e:
             st.error(f"오류: {e}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
@@ -166,14 +170,17 @@ with tab_qa:
     res = st.session_state.get("qa_result")
     if res:
         st.markdown("### 답변")
-        st.write(res["answer"])
+        ans = (res.get("answer") or "").strip()
+        if ans:
+            st.write(ans)
+        else:
+            st.warning("모델이 빈 답변을 반환했습니다. 근거 개수를 줄이거나 질문을 구체화해 다시 시도하세요. "
+                       "(근거는 아래 출처에서 직접 확인할 수 있습니다.)")
         if res["sources"]:
-            st.markdown("### 출처")
-            for s in res["sources"]:
-                st.markdown(f"**[{s['n']}]** {s['label']}")
-            with st.expander("근거 원문 보기"):
-                for i, c in enumerate(res["contexts"], 1):
-                    st.markdown(f"**[{i}]** {c['metadata'].get('doc_title','')}")
+            st.markdown(f"### 출처 ({len(res['sources'])}개)")
+            st.caption("각 출처를 클릭하면 해당 근거 원문만 펼쳐집니다.")
+            for s, c in zip(res["sources"], res["contexts"]):
+                with st.expander(f"[{s['n']}] {s['label']}"):
                     st.code(c["document"][:2000])
         feedback_form("qa", {"question": st.session_state.get("qa_q", ""),
                              "answer": res["answer"], "contexts": res["contexts"]},
@@ -190,8 +197,7 @@ with tab_log:
     up = st.file_uploader("로그 파일 (.txt/.dat/.log)", type=["txt", "dat", "log"],
                           key="log_up")
     log_q = st.text_input("질문(선택)", key="log_q",
-                          placeholder="예: 이 로그의 통신 흐름과 이상 프레임을 설명해줘")
-    log_files = _tree_scope("📂 범위 선택 (폴더/파일 체크 · 미선택=전체)", "log_scope")
+                          placeholder="예: LSAM 정보 요청 커맨드가 발생한 시각을 알려줘")
 
     if up is not None:
         raw = up.read()
@@ -204,19 +210,21 @@ with tab_log:
         ltype = "hex(binary)" if is_binary else detect_log_type(text)
         st.info(f"감지된 로그 종류: **{ltype}**")
 
-        try:
+        # 원문 미리보기만 표시(휴리스틱 자동파싱은 오해 소지 → 명세 확정 후 1회만 표시).
+        with st.expander("📄 로그 미리보기 (원문 앞부분)"):
+            _prev = (text or "").splitlines()[:20]
+            st.code("\n".join(_prev) if _prev else "(바이너리 로그 — 미리보기 생략)")
+        try:                                   # 명세 도출 실패 시 폴백용(조용히 계산)
             analysis = analyze(raw if is_binary else text, is_binary=is_binary)
-            st.markdown("#### 파싱 결과")
-            st.code(summarize_analysis(analysis))
-        except Exception as e:
+        except Exception:
             analysis = None
-            st.warning(f"파싱 보류(명세 확정 후 재해석): {e}")
 
-        st.markdown("#### 프로토콜 명세 확인 (필수)")
+        # --- 명세 선택(파일 선택 = 이 단계 하나로 통일) ---
+        st.markdown("#### 프로토콜 명세 선택 (필수)")
+        st.caption("이 로그에 해당하는 프로토콜 문서를 고르세요. 선택 문서에서 프레임 규격을 도출해 파싱합니다.")
         try:
             retriever, llm = get_retriever_llm()
-            cands = find_spec_candidates(retriever, text or "", log_q, top_k=5,
-                                         files=log_files)
+            cands = find_spec_candidates(retriever, text or "", log_q, top_k=8)
         except Exception as e:
             cands, llm = [], None
             st.error(f"명세 후보 검색 실패: {e}")
@@ -229,7 +237,7 @@ with tab_log:
                 sec = m.get("section") or m.get("page_no") or ""
                 snip = (cands[i].get("document", "")[:35].replace("\n", " ")).strip()
                 return f"[{i+1}] {fn} · {sec} · {snip}…"
-            picked = st.multiselect("이 로그에 해당하는 프로토콜 명세를 선택하세요 (파일명·섹션으로 구분)",
+            picked = st.multiselect("프로토콜 명세 (파일명·섹션으로 구분)",
                                     options=list(range(len(cands))),
                                     format_func=_clabel, key="log_specs")
             chosen = [cands[i] for i in picked]
@@ -243,6 +251,7 @@ with tab_log:
                 try:
                     with st.spinner("명세에서 프레임 구조 도출 → 파싱 → 해석 중…"):
                         use = analysis
+                        st.session_state.pop("log_profile", None)
                         if text is not None:      # 텍스트 로그: 선택 문서 기반 파싱
                             from rag.logs.generic import analyze_by_spec
                             spec_text = "\n\n".join(c.get("document", "") for c in chosen)
@@ -259,14 +268,18 @@ with tab_log:
         else:
             st.caption("명세 후보가 없습니다. 관리 탭에서 프로토콜 명세 문서를 먼저 인덱싱하세요.")
 
+        # --- 결과: 파싱 결과 1개 + 규격 + 해석 ---
         prof = st.session_state.get("log_profile")
         parsed = st.session_state.get("log_parsed")
+        if parsed:
+            from rag.logs.workflow import extract_command_names
+            _cmd_names = extract_command_names(
+                "\n".join(c.get("document", "") for c in chosen)) if chosen else {}
+            st.markdown("#### 파싱 결과")
+            st.code(summarize_analysis(parsed, cmd_names=_cmd_names))
         if prof:
             with st.expander("📐 명세에서 도출한 파싱 규격 (자동)"):
                 st.json(prof)
-        if parsed and parsed is not analysis:
-            st.markdown("#### 명세 기반 파싱 결과")
-            st.code(summarize_analysis(parsed))
         if st.session_state.get("log_out"):
             st.markdown("#### 해석")
             st.write(st.session_state["log_out"])

@@ -12,14 +12,21 @@ class RAGPipeline:
         self.llm = llm
         self.cfg = cfg
 
-    def answer(self, query: str, where: dict = None) -> dict:
-        """질문 → {answer, sources, contexts}. 근거 없으면 LLM 미호출."""
+    def answer(self, query: str, where: dict = None, final_k: int = None) -> dict:
+        """질문 → {answer, sources, contexts}. 근거 없으면 LLM 미호출.
+
+        final_k: 답변에 넣을 최종 근거(=출처) 개수. 미지정 시 설정값(cfg.final_k).
+        빈 답변(컨텍스트 초과로 생성 여유 부족 등) 시 근거 수를 줄여 1회 재시도한다.
+        """
+        k = final_k or self.cfg.final_k
         candidates = self.retriever.search(query, where=where)
         if not candidates:
             return {"answer": NO_CONTEXT_ANSWER, "sources": [], "contexts": []}
-        top = self.reranker.rerank(query, candidates, final_k=self.cfg.final_k)
-        messages = build_messages(query, top)
-        text = self.llm.chat(messages)
+        top = self.reranker.rerank(query, candidates, final_k=k)
+        text = self.llm.chat(build_messages(query, top))
+        if not (text or "").strip() and len(top) > 1:   # 빈 답변 → 컨텍스트 축소 재시도
+            fewer = top[: max(1, len(top) // 2)]
+            text = self.llm.chat(build_messages(query, fewer))
         return {"answer": text, "sources": sources_list(top), "contexts": top}
 
 
