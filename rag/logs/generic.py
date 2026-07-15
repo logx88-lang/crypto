@@ -285,17 +285,48 @@ def derive_frame_structure(llm, spec_text: str) -> dict:
     return _extract_json(resp)
 
 
+# LLM 도출이 실패/부실할 때 시도하는 '일반적' 프레임형(문서별 하드코딩 아님, 흔한 산업 표준 형태).
+_FALLBACK_STRUCTS = [
+    # 길이형: Command(2 ASCII) + Length(2) + Data + LRC(1)  — RF 모듈류
+    {"framing": "length", "cmd": {"offset": 0, "size": 2, "type": "ascii"},
+     "length": {"offset": 2, "size": 2, "endian": "big"}, "header_size": 4,
+     "trailer_size": 1, "checksum": {"type": "lrc", "span": "header_and_data"}},
+    # 구분+길이형: STX + LEN(1) + CMD(1 hex) + Data + CHK(1 XOR) + ETX
+    {"framing": "delimited", "start_byte": 2, "end_byte": 3,
+     "cmd": {"offset": 2, "size": 1, "type": "hex"}, "length": {"offset": 1, "size": 1, "endian": "big"},
+     "header_size": 2, "trailer_size": 2, "checksum": {"type": "xor", "span": "data"}},
+]
+
+
+def _quality(res: dict) -> float:
+    t = res.get("total", 0) or 0
+    return (res.get("valid_count", 0) / t) if t else 0.0
+
+
 def analyze_by_spec(text: str, spec_text: str, llm) -> dict:
     """선택 문서 기반 파싱: 줄형식(자동감지) + 프레임구조(LLM도출) → 범용 파서.
 
-    반환에 'profile'(도출된 설정)과 'derived'(True) 포함. 도출 실패 시 derived=False.
+    도출 프로파일로 파싱한 뒤, 프레임이 없거나 체크섬 유효율이 낮으면 일반적 프레임형
+    후보로 재파싱해 가장 유효한(프레임 있고 유효율 높은) 결과를 채택한다 → 도출 변동에도 안정.
+    반환에 'profile'·'derived' 포함.
     """
-    structure = derive_frame_structure(llm, spec_text)
     line_fmt = detect_line_format(text)
-    if not structure or "framing" not in structure:
+    candidates = []
+    structure = derive_frame_structure(llm, spec_text)
+    if structure and "framing" in structure:
+        r = analyze_with_profile(text, {**structure, **line_fmt})
+        r["derived"] = True
+        candidates.append(r)
+    best = candidates[0] if candidates else None
+    # 도출 결과가 부실하면(0프레임 또는 유효율<0.5) 일반 후보들과 비교해 더 나은 것 채택
+    if best is None or best.get("total", 0) == 0 or _quality(best) < 0.5:
+        for st in _FALLBACK_STRUCTS:
+            r = analyze_with_profile(text, {**st, **line_fmt})
+            r["derived"] = True
+            candidates.append(r)
+        # 채택 기준: 유효 프레임 수(유효율×총수)가 최대인 것
+        best = max(candidates, key=lambda r: (_quality(r), r.get("total", 0)))
+    if best is None:
         return {"derived": False, "profile": None, "frames": [], "total": 0,
-                "valid_count": 0, "note": "명세에서 프레임 구조 도출 실패 — 자동감지로 폴백"}
-    profile = {**structure, **line_fmt}
-    res = analyze_with_profile(text, profile)
-    res["derived"] = True
-    return res
+                "valid_count": 0, "note": "프레임 구조 도출·자동감지 모두 실패"}
+    return best
