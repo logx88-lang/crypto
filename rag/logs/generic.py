@@ -155,20 +155,37 @@ def parse_length(stream: list, profile: dict, times: list = None) -> dict:
 
 
 def parse_delimited(stream: list, profile: dict, times: list = None) -> dict:
-    """delimited 프레이밍: start_byte ~ end_byte 로 프레임 분할."""
+    """delimited 프레이밍: start_byte ~ end_byte 로 프레임 분할.
+
+    길이 필드가 있으면 그것으로 프레임 끝을 계산한다 — DATA에 종료바이트(예: 0x03)가
+    들어가도 프레임이 어긋나지 않게(STX+LEN+CMD+DATA+CHK+ETX 류 흔한 구조 대응).
+    """
     sb, eb = profile.get("start_byte"), profile.get("end_byte")
     chk = profile.get("checksum", {"type": "none"})
+    lenf = profile.get("length")
+    hs, ts_ = profile.get("header_size"), profile.get("trailer_size")
+    cmd_off = int(profile.get("cmd", {}).get("offset", 2))
     frames, valid = [], 0
     i, n = 0, len(stream)
     while i < n:
         if stream[i] != sb:
             i += 1
             continue
-        j = i + 1
-        while j < n and stream[j] != eb:
-            j += 1
-        if j >= n:
-            break
+        j = None
+        if lenf and hs is not None and ts_ is not None:      # 길이 기반 끝 계산
+            lo = i + int(lenf["offset"])
+            sz = int(lenf.get("size", 1))
+            if lo + sz <= n:
+                length = _int(stream[lo:lo + sz], lenf.get("endian", "big"))
+                end = i + int(hs) + length + int(ts_) - 1
+                if end < n and stream[end] == eb:
+                    j = end
+        if j is None:                                        # 폴백: 종료바이트 스캔
+            j = i + 1
+            while j < n and stream[j] != eb:
+                j += 1
+            if j >= n:
+                break
         fr = stream[i:j + 1]
         ok, note = True, ""
         if chk.get("type", "none") != "none" and len(fr) >= 3:
@@ -178,7 +195,7 @@ def parse_delimited(stream: list, profile: dict, times: list = None) -> dict:
             if not ok:
                 note = f"{chk['type'].upper()} 불일치"
         frames.append({"bytes": fr, "hex": " ".join(f"{x:02X}" for x in fr),
-                       "cmd": fr[2] if len(fr) > 2 else None,
+                       "cmd": fr[cmd_off] if len(fr) > cmd_off else None,
                        "time": (times[i] if times and i < len(times) else ""),
                        "valid": ok, "note": note})
         valid += int(ok)
@@ -241,9 +258,11 @@ _DERIVE_SYSTEM = (
     ' {"framing":"length","cmd":{"offset":0,"size":2,"type":"ascii"},'
     '"length":{"offset":2,"size":2,"endian":"big"},"header_size":4,"trailer_size":1,'
     '"checksum":{"type":"lrc","span":"header_and_data"}}\n'
-    "예2(구분형) STX(0x02)+LEN(1)+CMD(1)+DATA(n)+CHK(1,XOR)+ETX(0x03) →"
+    "예2(구분+길이형) STX(0x02)+LEN(1=CMD+DATA 바이트수)+CMD(1)+DATA(n)+CHK(1,XOR,STX/ETX제외)"
+    "+ETX(0x03) → 길이 필드가 있으면 length·header_size·trailer_size 를 반드시 포함:"
     ' {"framing":"delimited","start_byte":2,"end_byte":3,'
-    '"cmd":{"offset":2,"size":1,"type":"hex"},"checksum":{"type":"xor","span":"data"}}'
+    '"cmd":{"offset":2,"size":1,"type":"hex"},"length":{"offset":1,"size":1,"endian":"big"},'
+    '"header_size":2,"trailer_size":2,"checksum":{"type":"xor","span":"data"}}'
 )
 
 
