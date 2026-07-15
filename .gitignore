@@ -9,8 +9,8 @@ env/
 .claude/hooks/.log_state.json
 
 # 로컬 인덱스/데이터 산출물 (오프라인 배포물·대용량)
-data/
-chroma/
+/data/
+/chroma/
 *.chroma
 index/*.bin
 *_bm25s/
@@ -24,7 +24,7 @@ samples/_generated/
 uploads/
 
 # 런타임 로그
-logs/
+/logs/
 *.log
 
 # 클라이언트 빌드 산출물(PyInstaller)

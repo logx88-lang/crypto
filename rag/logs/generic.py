@@ -1,0 +1,262 @@
+"""문서 기반 범용 로그 파서 — 프레임 규격을 **설정(dict)**으로 표현하고, 그 설정은
+선택한 프로토콜 문서에서 **LLM이 도출**한다. 포맷마다 코드를 하드코딩하지 않는다.
+
+지원 프레이밍:
+- "length": Command + Length + Data + Checksum (RF module류, 산업용 다수)
+- "delimited": 시작바이트~끝바이트 (STX/ETX, SOH 등)
+
+설정 스키마(LLM 출력 = 이 dict):
+{
+  "framing": "length" | "delimited",
+  "byte_token": "bracket" | "0x" | "bare",
+  "timestamp_regex": "...(선택)",
+  "strip_regexes": ["...제거할 방향/명령 표기..."],
+  # length:
+  "cmd":    {"offset":0, "size":2, "type":"ascii"|"hex"},
+  "length": {"offset":2, "size":2, "endian":"big"|"little"},
+  "header_size": 4,           # 데이터 시작 오프셋(= cmd+length 등)
+  "trailer_size": 1,          # 데이터 뒤 바이트 수(체크섬 등)
+  "checksum": {"type":"xor"|"lrc"|"sum"|"crc16"|"none", "span":"header_and_data"|"data"},
+  # delimited:
+  "start_byte": 2, "end_byte": 3
+}
+"""
+from __future__ import annotations
+
+import re
+
+from .profiles import TOK_BRACKET, TOK_0X, TOK_BARE
+
+_TOKENS = {"bracket": TOK_BRACKET, "0x": TOK_0X, "bare": TOK_BARE}
+
+
+def ascii_dump(data) -> str:
+    """바이너리 데이터를 출력가능 문자만 표시(비출력은 '.')— 깨진 글자(�) 대신."""
+    return "".join(chr(b) if 32 <= b < 127 else "." for b in data)
+
+
+# LLM 구조화 출력용 JSON 스키마
+PROFILE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "framing": {"type": "string", "enum": ["length", "delimited"]},
+        "byte_token": {"type": "string", "enum": ["bracket", "0x", "bare"]},
+        "strip_regexes": {"type": "array", "items": {"type": "string"}},
+        "cmd": {"type": "object", "properties": {
+            "offset": {"type": "integer"}, "size": {"type": "integer"},
+            "type": {"type": "string", "enum": ["ascii", "hex"]}}},
+        "length": {"type": "object", "properties": {
+            "offset": {"type": "integer"}, "size": {"type": "integer"},
+            "endian": {"type": "string", "enum": ["big", "little"]}}},
+        "header_size": {"type": "integer"},
+        "trailer_size": {"type": "integer"},
+        "checksum": {"type": "object", "properties": {
+            "type": {"type": "string", "enum": ["xor", "lrc", "sum", "crc16", "none"]},
+            "span": {"type": "string", "enum": ["header_and_data", "data"]}}},
+        "start_byte": {"type": "integer"}, "end_byte": {"type": "integer"},
+    },
+    "required": ["framing"],
+}
+
+
+def _int(bs, endian):
+    return int.from_bytes(bytes(bs), "big" if endian == "big" else "little")
+
+
+def _checksum(kind, data):
+    if kind in ("xor", "lrc"):
+        c = 0
+        for b in data:
+            c ^= b
+        return c
+    if kind == "sum":
+        return sum(data) & 0xFF
+    if kind == "crc16":
+        crc = 0xFFFF
+        for b in data:
+            crc ^= b << 8
+            for _ in range(8):
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF if (crc & 0x8000) else (crc << 1) & 0xFFFF
+        return crc
+    return None
+
+
+def reconstruct_stream(text: str, profile: dict) -> list:
+    """로그 전체에서 (타임스탬프/방향/명령표기 제거 후) hex 바이트 스트림 복원."""
+    token = _TOKENS.get(profile.get("byte_token", "bracket"), TOK_BRACKET)
+    strips = list(profile.get("strip_regexes") or [])
+    if profile.get("timestamp_regex"):
+        strips.append(profile["timestamp_regex"])
+    out = []
+    for ln in text.splitlines():
+        body = ln
+        for rx in strips:
+            try:
+                body = re.sub(rx, " ", body)
+            except re.error:
+                pass
+        out.extend(int(h, 16) for h in re.findall(token, body))
+    return out
+
+
+def parse_length(stream: list, profile: dict) -> dict:
+    """length 프레이밍: Command + Length + Data + (checksum trailer)."""
+    cmd = profile.get("cmd", {"offset": 0, "size": 2, "type": "ascii"})
+    lenf = profile.get("length", {"offset": 2, "size": 2, "endian": "big"})
+    header = int(profile.get("header_size", cmd.get("size", 2) + lenf.get("size", 2)))
+    trailer = int(profile.get("trailer_size", 1))
+    chk = profile.get("checksum", {"type": "none", "span": "header_and_data"})
+    frames, valid = [], 0
+    i, n = 0, len(stream)
+    while i + header + trailer <= n:
+        length = _int(stream[i + lenf["offset"]: i + lenf["offset"] + lenf["size"]],
+                      lenf.get("endian", "big"))
+        total = header + length + trailer
+        if i + total > n:
+            break
+        fr = stream[i:i + total]
+        cb = fr[cmd["offset"]: cmd["offset"] + cmd["size"]]
+        cmd_ascii = bytes(cb).decode("ascii", "replace") if cmd.get("type") == "ascii" \
+            else " ".join(f"{x:02X}" for x in cb)
+        data = fr[header:header + length]
+        ok, note = True, ""
+        if chk.get("type", "none") != "none" and trailer >= 1:
+            span = fr[0:header + length] if chk.get("span") == "header_and_data" else data
+            calc = _checksum(chk["type"], span)
+            got = _int(fr[header + length: header + length + trailer], "big")
+            ok = (calc == got)
+            if not ok:
+                note = f"{chk['type'].upper()} 불일치(계산 0x{calc:02X}, 값 0x{got:02X})"
+        frames.append({
+            "bytes": fr, "hex": " ".join(f"{x:02X}" for x in fr),
+            "cmd": None, "cmd_ascii": cmd_ascii, "length": length,
+            "data": list(data), "data_ascii": ascii_dump(data),
+            "valid": ok, "note": note,
+        })
+        valid += int(ok)
+        i += total
+    return {"log_type": "hex", "profile": profile, "frames": frames,
+            "valid_count": valid, "total": len(frames)}
+
+
+def parse_delimited(stream: list, profile: dict) -> dict:
+    """delimited 프레이밍: start_byte ~ end_byte 로 프레임 분할."""
+    sb, eb = profile.get("start_byte"), profile.get("end_byte")
+    chk = profile.get("checksum", {"type": "none"})
+    frames, valid = [], 0
+    i, n = 0, len(stream)
+    while i < n:
+        if stream[i] != sb:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and stream[j] != eb:
+            j += 1
+        if j >= n:
+            break
+        fr = stream[i:j + 1]
+        ok, note = True, ""
+        if chk.get("type", "none") != "none" and len(fr) >= 3:
+            calc = _checksum(chk["type"], fr[1:-2])
+            got = fr[-2]
+            ok = (calc == got)
+            if not ok:
+                note = f"{chk['type'].upper()} 불일치"
+        frames.append({"bytes": fr, "hex": " ".join(f"{x:02X}" for x in fr),
+                       "cmd": fr[2] if len(fr) > 2 else None, "valid": ok, "note": note})
+        valid += int(ok)
+        i = j + 1
+    return {"log_type": "hex", "profile": profile, "frames": frames,
+            "valid_count": valid, "total": len(frames)}
+
+
+def analyze_with_profile(text: str, profile: dict) -> dict:
+    """도출된 설정(dict)으로 로그 파싱 — 하드코딩 없는 범용 경로."""
+    stream = reconstruct_stream(text, profile)
+    if profile.get("framing") == "delimited":
+        return parse_delimited(stream, profile)
+    return parse_length(stream, profile)
+
+
+# ---------------------------------------------------------------------------
+# 로그 줄 형식 자동 감지 (토큰/타임스탬프/구조표기) — 코드가 담당
+# ---------------------------------------------------------------------------
+def detect_line_format(text: str) -> dict:
+    """로그 샘플에서 byte_token·timestamp_regex·strip_regexes 를 추정한다."""
+    from .profiles import (TS_MMDD, TS_ISO, TS_RF, DIR_TXRX, DIR_ARROW, CMD_MARKER)
+    sample = "\n".join(text.splitlines()[:40])
+    # 명시적 구분자(bracket/0x)를 우선 — bare 정규식은 [hh] 내부도 매칭해 과대계수됨
+    if re.search(TOK_BRACKET, sample):
+        token = "bracket"
+    elif re.search(TOK_0X, sample):
+        token = "0x"
+    elif re.search(TOK_BARE, sample):
+        token = "bare"
+    else:
+        token = "bracket"
+    ts = None
+    for pat in (TS_RF, TS_ISO, TS_MMDD):
+        if re.search(pat, sample):
+            ts = pat
+            break
+    strips = []
+    if re.search(CMD_MARKER, sample):
+        strips.append(CMD_MARKER)
+    if re.search(DIR_ARROW, sample):
+        strips.append(DIR_ARROW)
+    if re.search(DIR_TXRX, sample):
+        strips.append(DIR_TXRX)
+    return {"byte_token": token, "timestamp_regex": ts, "strip_regexes": strips}
+
+
+# ---------------------------------------------------------------------------
+# 프레임 구조 도출 (LLM이 명세 표에서) — 하드코딩 대체
+# ---------------------------------------------------------------------------
+_DERIVE_SYSTEM = (
+    "/no_think\n너는 통신 프로토콜 명세를 읽고 로그 파서 설정을 만드는 도구다. "
+    "명세의 '전문/패킷 형식(프레임 구조)' 표를 읽고 아래 JSON만 출력한다(설명 금지).\n"
+    "필드: framing('length'=명령+길이+데이터+체크섬 / 'delimited'=시작~끝바이트), "
+    "cmd{offset,size,type(ascii|hex)}, length{offset,size,endian(big|little)}, "
+    "header_size(데이터 시작 오프셋), trailer_size(데이터 뒤 체크섬 바이트수), "
+    "checksum{type(xor|lrc|sum|crc16|none),span(header_and_data|data)}, "
+    "delimited면 start_byte,end_byte(정수).\n"
+    "예: Command(2 Char)+Length(2 Hex)+Data(n)+LRC(1) →"
+    ' {"framing":"length","cmd":{"offset":0,"size":2,"type":"ascii"},'
+    '"length":{"offset":2,"size":2,"endian":"big"},"header_size":4,"trailer_size":1,'
+    '"checksum":{"type":"lrc","span":"header_and_data"}}'
+)
+
+
+def _extract_json(text: str) -> dict:
+    m = re.search(r"\{.*\}", text or "", re.DOTALL)
+    if not m:
+        return None
+    import json
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+def derive_frame_structure(llm, spec_text: str) -> dict:
+    """LLM으로 명세에서 프레임 구조(JSON)를 도출. 실패 시 None."""
+    user = f"[프로토콜 명세 발췌]\n{spec_text[:6000]}\n\n위 명세의 프레임 구조를 JSON으로만 출력:"
+    resp = llm.chat([{"role": "system", "content": _DERIVE_SYSTEM},
+                     {"role": "user", "content": user}])
+    return _extract_json(resp)
+
+
+def analyze_by_spec(text: str, spec_text: str, llm) -> dict:
+    """선택 문서 기반 파싱: 줄형식(자동감지) + 프레임구조(LLM도출) → 범용 파서.
+
+    반환에 'profile'(도출된 설정)과 'derived'(True) 포함. 도출 실패 시 derived=False.
+    """
+    structure = derive_frame_structure(llm, spec_text)
+    line_fmt = detect_line_format(text)
+    if not structure or "framing" not in structure:
+        return {"derived": False, "profile": None, "frames": [], "total": 0,
+                "valid_count": 0, "note": "명세에서 프레임 구조 도출 실패 — 자동감지로 폴백"}
+    profile = {**structure, **line_fmt}
+    res = analyze_with_profile(text, profile)
+    res["derived"] = True
+    return res
