@@ -27,6 +27,12 @@ uploads/
 /logs/
 *.log
 
+# HTTPS 인증서(개인키 포함 — 절대 커밋 금지). gen_cert.ps1 로 서버에서 생성.
+/certs/
+*.pem
+*.crt
+*.key
+
 # 클라이언트 빌드 산출물(PyInstaller)
 packaging/client/.build/
 packaging/client/build/

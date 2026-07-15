@@ -34,18 +34,35 @@ try {
         -Action Allow -Protocol TCP -LocalPort $Port -ErrorAction SilentlyContinue | Out-Null
 } catch { Write-Warning "방화벽 규칙 추가 실패(관리자 권한으로 1회 수동 허용 필요): TCP $Port" }
 
-# 3) 이 PC의 접속 주소 안내
+# 3) HTTPS 인증서 확인 (있으면 https, 없으면 http)
+#    클립보드 이미지 붙여넣기는 보안 컨텍스트(HTTPS)에서만 동작 → 인증서 권장.
+#    최초 1회 .\packaging\gen_cert.ps1 로 certs\cert.pem, key.pem 생성.
+$Cert = Join-Path $Root "certs\cert.pem"
+$Key  = Join-Path $Root "certs\key.pem"
+$sslArgs = @()
+if ((Test-Path $Cert) -and (Test-Path $Key)) {
+    $sslArgs = @("--server.sslCertFile", $Cert, "--server.sslKeyFile", $Key)
+    $scheme = "https"
+} else {
+    $scheme = "http"
+    Write-Warning "인증서 없음 → HTTP로 구동(클립보드 붙여넣기 불가). HTTPS: .\packaging\gen_cert.ps1 실행 후 재시작."
+}
+
+# 4) 이 PC의 접속 주소 안내
 $ip = (Get-NetIPAddress -AddressFamily IPv4 |
        Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.*" } |
        Select-Object -First 1).IPAddress
 Write-Host ""
-Write-Host "개발 PC(B)에서 접속할 주소:  http://$ip`:$Port"
-Write-Host "  → open_client.bat 의 SERVER 값을 이 주소로 설정해 배포하세요."
+Write-Host "개발 PC(B)에서 접속할 주소:  ${scheme}://$ip`:$Port"
+Write-Host "  → open_client.bat / server.txt 값을 이 주소로 설정해 배포하세요."
+if ($scheme -eq "https") {
+    Write-Host "  → 각 개발 PC에 certs\cert.crt 를 '신뢰할 수 있는 루트 인증 기관'에 설치(packaging\HTTPS.md)."
+}
 Write-Host ""
 
-# 4) Streamlit 구동 (0.0.0.0 바인딩 = 사내망 공개)
+# 5) Streamlit 구동 (0.0.0.0 바인딩 = 사내망 공개)
 & ".\.venv\Scripts\streamlit.exe" run rag\app\main.py `
-    --server.address 0.0.0.0 --server.port $Port --server.headless true
+    --server.address 0.0.0.0 --server.port $Port --server.headless true @sslArgs
 
 # --- 자동 시작(부팅 시) 방법 ---------------------------------------------
 #  (a) 작업 스케줄러: 트리거=로그온/시작 시, 동작=powershell -File <이 스크립트> (가장 간단)

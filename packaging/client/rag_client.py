@@ -15,7 +15,7 @@ import urllib.request
 
 import webview
 
-DEFAULT_URL = "http://192.168.155.89:8501"   # 고정 서버 주소(하드코딩). server.txt 없이 동작.
+DEFAULT_URL = "https://192.168.155.89:8501"  # 고정 서버 주소(하드코딩). HTTPS=클립보드 붙여넣기 가능.
 WINDOW_TITLE = "사내 지식 RAG"
 
 
