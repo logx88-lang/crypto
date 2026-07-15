@@ -237,10 +237,13 @@ _DERIVE_SYSTEM = (
     "header_size(데이터 시작 오프셋), trailer_size(데이터 뒤 체크섬 바이트수), "
     "checksum{type(xor|lrc|sum|crc16|none),span(header_and_data|data)}, "
     "delimited면 start_byte,end_byte(정수).\n"
-    "예: Command(2 Char)+Length(2 Hex)+Data(n)+LRC(1) →"
+    "예1(길이형) Command(2 Char)+Length(2 Hex)+Data(n)+LRC(1) →"
     ' {"framing":"length","cmd":{"offset":0,"size":2,"type":"ascii"},'
     '"length":{"offset":2,"size":2,"endian":"big"},"header_size":4,"trailer_size":1,'
-    '"checksum":{"type":"lrc","span":"header_and_data"}}'
+    '"checksum":{"type":"lrc","span":"header_and_data"}}\n'
+    "예2(구분형) STX(0x02)+LEN(1)+CMD(1)+DATA(n)+CHK(1,XOR)+ETX(0x03) →"
+    ' {"framing":"delimited","start_byte":2,"end_byte":3,'
+    '"cmd":{"offset":2,"size":1,"type":"hex"},"checksum":{"type":"xor","span":"data"}}'
 )
 
 

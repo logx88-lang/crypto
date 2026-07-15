@@ -15,21 +15,49 @@ from .detect import detect_log_type, detect_profile
 from .parser import analyze_text_log, analyze_binary_log
 from .profiles import ParsingProfile
 
-# 명령표 행: "SD" | LSAM 자료 요청 …  → (ID, 이름) 추출
-_CMD_ROW_RE = re.compile(r"[“”\"']\s*([A-Za-z]{2})\s*[“”\"']\s*\|\s*([^|]+)")
+_HEXID_RE = re.compile(r"^0x[0-9A-Fa-f]{1,4}$")
+_QUOTED_ID_RE = re.compile(r"^[“”\"']\s*([A-Za-z0-9]{2,5})\s*[“”\"']$")
+
+
+def _cell_id(cell: str):
+    """셀이 명령 ID면 정규화 키 반환. hex(0x12→'0X12') 또는 따옴표 니모닉("SD"→'SD')."""
+    c = (cell or "").strip()
+    if _HEXID_RE.match(c):
+        return f"0X{int(c, 16):X}"
+    m = _QUOTED_ID_RE.match(c)
+    return m.group(1).upper() if m else None
 
 
 def extract_command_names(spec_text: str) -> dict:
-    """확정 명세 텍스트에서 명령 ID→이름 매핑을 결정적으로 추출.
+    """확정 명세에서 명령 ID→이름 매핑을 결정적으로 추출(프로토콜 불문).
 
-    LLM이 표를 교차참조하다 명령 코드를 지어내는 문제를 없애기 위해, 파싱 요약에
-    이름을 직접 붙여준다(예: 'SD' → 'LSAM 자료 요청').
+    표 직렬화가 파이프(| "SD" | LSAM 자료 요청 |, docx)든 공백(0x12 COIN_IN 코인 투입…, pdf)이든
+    처리한다. ID는 hex 코드(0x12) 또는 따옴표 2~5자 니모닉("SD")만 인정 → 패킷필드(STX/LEN 등)
+    오탐을 막는다. LLM이 표를 교차참조하다 코드를 지어내는 문제를 없애기 위해 요약에 이름을 직접 붙인다.
     """
     out = {}
-    for m in _CMD_ROW_RE.finditer(spec_text or ""):
-        cid, name = m.group(1).upper(), m.group(2).strip()
-        if name and cid not in out:
-            out[cid] = name
+    for line in (spec_text or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if "|" in s:                              # 파이프 구분 표(docx)
+            cells = [c.strip() for c in s.split("|") if c.strip()]
+            for i, c in enumerate(cells):
+                key = _cell_id(c)
+                if key:
+                    rest = [x for x in cells[i + 1:] if not _cell_id(x)]
+                    name = " ".join(rest).strip()[:60]
+                    if name and key not in out:
+                        out[key] = name
+                    break
+        else:                                     # 공백 구분 표(pdf) — hex/따옴표로 시작하는 행만
+            m = (re.match(r"^(0x[0-9A-Fa-f]{1,4})\s+(\S.*)$", s)
+                 or re.match(r"^[“”\"']([A-Za-z0-9]{2,5})[“”\"']\s+(\S.*)$", s))
+            if m:
+                key = _cell_id(m.group(1)) or _cell_id(f'"{m.group(1)}"')
+                name = m.group(2).strip()[:60]
+                if key and name and key not in out:
+                    out[key] = name
     return out
 
 
@@ -99,7 +127,8 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
     if not any(_looks_like_cmd_list(c.get("document", "")) for c in out):
         try:
             extra = retriever.search(
-                "Command ID 명령 코드 목록 구분 설명 Protocol Control Code List",
+                "명령 코드 목록 명령어 일람 명령 정의 command code list command table "
+                "Protocol Control Code List CMD 코드 이름 설명",
                 top_k=12, where=where)
         except Exception:
             extra = []
@@ -133,11 +162,17 @@ def summarize_analysis(analysis: dict, max_frames: int = 40, cmd_names: dict = N
             return f"'{fr['cmd_ascii']}'"
         return f"0x{cmd:02X}" if isinstance(cmd, int) else "?"
 
+    def _name_key(fr):                        # cmd_names 조회용 정규화 키(ascii/hex 공통)
+        if fr.get("cmd_ascii"):
+            return fr["cmd_ascii"].strip().upper()
+        cmd = fr.get("cmd")
+        return f"0X{cmd:X}" if isinstance(cmd, int) else None
+
     # 명령별 집계(발생 횟수 + 시각) — 프레임이 많아도 특정 명령/발생시각을 놓치지 않게.
     agg = {}
     for fr in frames:
         k = _cmd_key(fr)
-        e = agg.setdefault(k, {"count": 0, "times": []})
+        e = agg.setdefault(k, {"count": 0, "times": [], "nk": _name_key(fr)})
         e["count"] += 1
         if fr.get("time"):
             e["times"].append(fr["time"])
@@ -145,7 +180,7 @@ def summarize_analysis(analysis: dict, max_frames: int = 40, cmd_names: dict = N
     for k, e in sorted(agg.items(), key=lambda kv: -kv[1]["count"]):
         ts = e["times"]
         tail = f" @ {', '.join(ts[:12])}{' …' if len(ts) > 12 else ''}" if ts else ""
-        name = cmd_names.get(k.strip("'\"").upper())   # 명세에서 뽑은 명령 이름 주입
+        name = cmd_names.get(e["nk"]) if e["nk"] else None   # 명세에서 뽑은 명령 이름 주입
         label = f"{k} ({name})" if name else k
         agg_lines.append(f"  {label}: {e['count']}회{tail}")
 
@@ -190,13 +225,12 @@ def build_log_messages(question: str, analysis: dict, spec_chunks: list) -> list
         "/no_think\n"
         "당신은 통신 프로토콜 로그 분석가입니다. 아래 [확정 명세]의 패킷 구조·필드·명령 코드에만"
         " 근거하여 [파싱 결과] 로그를 한국어 공식체로 해석하십시오.\n"
-        "- [파싱 결과]의 '명령별 발생 시각'에는 로그에서 실제로 관측된 명령 ID와 (명세에서 찾은)"
+        "- [파싱 결과]의 '명령별 발생 시각'에는 로그에서 실제로 관측된 명령 ID(코드)와 (명세에서 찾은)"
         " 명령 이름, 그리고 발생 시각이 있습니다. 명령·이름·시각은 반드시 이 값을 그대로 사용하고,"
         " 명령 코드/이름/시각을 지어내지 마십시오.\n"
-        "- 질문이 명령을 이름(예: 'LSAM 정보 요청')으로 지칭하면, [파싱 결과]의 '명령별 발생 시각'에서"
-        " 같은(또는 가장 가까운) 이름의 항목을 찾아 그 발생 시각을 답하십시오. '정보 요청'과 '자료 요청'"
-        " 처럼 표기가 달라도 같은 명령이면 연결합니다.\n"
-        "- 해당 이름의 명령이 파싱 결과에 없으면 '해당 명령이 로그에 관측되지 않음'이라고 답하십시오.\n"
+        "- 질문이 명령을 이름이나 코드로 지칭하면, [파싱 결과]의 '명령별 발생 시각'에서 같은(또는 의미가"
+        " 가장 가까운) 항목을 찾아 그 발생 시각/횟수를 답하십시오. 표기가 조금 달라도 같은 명령이면 연결합니다.\n"
+        "- 해당 명령이 파싱 결과에 없으면 '해당 명령이 로그에 관측되지 않음'이라고 답하십시오.\n"
         "- 각 해석에 근거 명세를 [명세N]으로 표기합니다.\n"
         "- 체크섬 불일치(✗) 프레임은 이상 징후로 명시합니다."
     )
