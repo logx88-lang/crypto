@@ -92,22 +92,50 @@ def feedback_form(kind: str, prefill: dict, key: str):
             st.success(("비식별화되어 " if redact else "") + "저장되었습니다. '개선 기록' 탭에서 반출하세요.")
 
 
-def _scope_files(label, key):
-    """폴더/파일 통합 멀티셀렉트 → 선택된 파일(rel_path) 목록. 폴더 선택=하위 전체."""
-    from rag.index.indexer import list_documents
-    files = list_documents()
+def _folder_set(files):
+    """파일 rel_path 목록 → 등장하는 모든 (중첩) 폴더 경로 집합."""
     folders = set()
     for f in files:
         parts = f.split("/")
         for i in range(1, len(parts)):
-            folders.add("/".join(parts[:i]) + "/")
-    sel = st.multiselect(label, sorted(folders) + files, key=key)
+            folders.add("/".join(parts[:i]))
+    return folders
+
+
+def _tree_rows(files):
+    """(폴더+파일)을 트리 순서로 정렬한 행 리스트 → (depth, path, is_folder, name)."""
+    nodes = [(p, True) for p in _folder_set(files)] + [(f, False) for f in files]
+    # 전체 경로 세그먼트 기준 정렬 → 폴더가 자식보다 앞서는 깊이우선(depth-first) 순서
+    nodes.sort(key=lambda x: x[0].split("/"))
+    return [(p.count("/"), p, is_dir, p.split("/")[-1]) for p, is_dir in nodes]
+
+
+def _tree_scope(label, key):
+    """체크박스 트리로 폴더/파일 선택 → 선택된 파일(rel_path) 목록.
+    폴더 체크 = 하위 전체 포함. 파일 개별 체크도 가능. 미선택 시 None(=전체)."""
+    from rag.index.indexer import list_documents
+    files = list_documents()
+    if not files:
+        st.caption("인덱싱된 문서가 없습니다. 관리 탭에서 먼저 인덱싱하세요.")
+        return None
+
+    rows = _tree_rows(files)
+    folder_ck, file_ck = {}, {}
+    with st.expander(label):
+        st.caption("📁 폴더 체크 = 하위 전체 포함 · 📄 파일 개별 체크 · 아무것도 안 하면 전체 대상")
+        for depth, path, is_dir, name in rows:
+            indent = "  " * depth      # EM SPACE로 계층 들여쓰기
+            icon = "📁" if is_dir else "📄"
+            ck = st.checkbox(f"{indent}{icon} {name}", key=f"{key}::{path}")
+            (folder_ck if is_dir else file_ck)[path] = ck
+
     chosen = set()
-    for s in sel:
-        if s.endswith("/"):
-            chosen.update(f for f in files if f.startswith(s))
-        else:
-            chosen.add(s)
+    for f in files:
+        if file_ck.get(f) or any(ck and f.startswith(fol + "/")
+                                 for fol, ck in folder_ck.items()):
+            chosen.add(f)
+    if chosen:
+        st.caption(f"선택: {len(chosen)}개 파일")
     return sorted(chosen) or None
 
 
@@ -123,7 +151,7 @@ tab_qa, tab_log, tab_fb, tab_admin = st.tabs(
 # ===========================================================================
 with tab_qa:
     st.subheader("문서 질의응답")
-    qa_files = _scope_files("범위 (폴더/파일 체크, 미선택=전체)", "qa_scope")
+    qa_files = _tree_scope("📂 범위 선택 (폴더/파일 체크 · 미선택=전체)", "qa_scope")
     query = st.text_input("질문", key="qa_query",
                           placeholder="예: XM-200 코인 투입 명령 코드는?")
     if st.button("검색", key="qa_btn") and query.strip():
@@ -163,7 +191,7 @@ with tab_log:
                           key="log_up")
     log_q = st.text_input("질문(선택)", key="log_q",
                           placeholder="예: 이 로그의 통신 흐름과 이상 프레임을 설명해줘")
-    log_files = _scope_files("범위 (폴더/파일 체크, 미선택=전체)", "log_scope")
+    log_files = _tree_scope("📂 범위 선택 (폴더/파일 체크 · 미선택=전체)", "log_scope")
 
     if up is not None:
         raw = up.read()
@@ -272,7 +300,10 @@ with tab_fb:
             if r.get("image"):
                 _imgp = os.path.join(CONFIG.feedback_dir, r["image"])
                 if os.path.exists(_imgp):
-                    st.image(_imgp, width=320)
+                    try:
+                        st.image(_imgp, width=320)
+                    except Exception:
+                        st.caption(f"🖼️ 첨부 이미지: {r['image']} (표시 불가 — 파일 손상/미지원)")
         if st.button("📤 Markdown 내보내기(USB 반출용)"):
             path = log.export_markdown()
             st.success(f"내보냄: `{path}` — 이 파일만 반출하세요(실데이터 없음).")
@@ -299,10 +330,39 @@ with tab_admin:
         get_pipeline.clear(); get_retriever_llm.clear()
 
     # --- 문서 업로드 → 저장 + 인덱싱 ---
+    from rag.index.indexer import list_documents
     st.markdown("#### 문서 업로드")
     st.caption(f"지원: {', '.join(_EXTS)}  (.doc 는 서버 Word/LibreOffice 필요)")
-    up_folder = st.text_input("업로드 폴더(분류, 비우면 미분류)", key="up_folder",
-                              placeholder="예: 발매 / 정산 / 충전")
+
+    # data 폴더 구조를 트리로 보여주고, 기존 폴더에 추가하거나 새 폴더를 만들어 선택
+    _all_files = list_documents()
+    _folders = sorted(_folder_set(_all_files))
+    if _folders:
+        with st.expander("📂 현재 data 폴더 구조", expanded=False):
+            for _f in _folders:
+                cnt = sum(1 for x in _all_files if x.startswith(_f + "/"))
+                st.caption(" " * _f.count("/") + f"📁 {_f.split('/')[-1]}  ({cnt})")
+
+    _ROOT, _NEW = "\x00root", "\x00new"
+    _opts = [_ROOT] + _folders + [_NEW]
+
+    def _flabel(o):
+        if o == _ROOT:
+            return "📂 (루트 = 미분류)"
+        if o == _NEW:
+            return "➕ 새 폴더 만들기…"
+        return " " * o.count("/") + "📁 " + o.split("/")[-1]
+
+    _sel = st.selectbox("업로드 대상 폴더 (기존 선택 또는 새로 만들기)", _opts,
+                        format_func=_flabel, key="up_folder_sel")
+    if _sel == _NEW:
+        target_folder = st.text_input("새 폴더 경로 (하위폴더는 / 로 구분)", key="up_folder_new",
+                                       placeholder="예: 발매  또는  발매/2024").strip()
+    elif _sel == _ROOT:
+        target_folder = ""
+    else:
+        target_folder = _sel
+
     ups = st.file_uploader("사내 문서 업로드 (여러 개 선택 가능)", type=_EXTS,
                            accept_multiple_files=True, key="doc_up")
     if st.button("⬆️ 업로드 저장 + 인덱싱", key="up_index"):
@@ -310,22 +370,24 @@ with tab_admin:
             st.warning("먼저 파일을 선택하세요.")
         else:
             try:
-                dest = os.path.join(CONFIG.data_dir, os.path.basename(up_folder.strip())) \
-                    if up_folder.strip() else CONFIG.data_dir
+                # 중첩 경로 허용 + 경로 이탈(..) 방지
+                parts = [p for p in target_folder.replace("\\", "/").split("/")
+                         if p and p not in (".", "..")]
+                dest = os.path.join(CONFIG.data_dir, *parts) if parts else CONFIG.data_dir
                 os.makedirs(dest, exist_ok=True)
                 saved = []
                 for f in ups:
                     with open(os.path.join(dest, f.name), "wb") as out:
                         out.write(f.getbuffer())
                     saved.append(f.name)
-                st.info(f"저장 {len(saved)}개: {', '.join(saved[:20])}")
+                st.info(f"저장 위치: **{'/'.join(parts) or '(루트)'}** · {len(saved)}개: "
+                        f"{', '.join(saved[:20])}")
                 _run_index(full=False)
             except Exception as e:
                 st.error(f"실패: {e}")
 
     # --- 현재 인덱싱 대상 문서 ---
     st.markdown("#### 현재 문서")
-    from rag.index.indexer import list_documents
     docs = list_documents()
     st.write(f"인덱싱 대상 문서 **{len(docs)}개**")
     if docs:
