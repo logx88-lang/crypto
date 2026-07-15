@@ -35,6 +35,28 @@ def diff_manifest(old_manifest: dict, current: dict) -> tuple:
     return to_index, to_delete
 
 
+def list_documents(data_dir: str = None) -> list:
+    """인덱싱 대상 문서(상대경로) 목록 — 예약폴더(chroma/feedback) 제외."""
+    from ..ingest import SUPPORTED_EXTS
+    data_dir = data_dir or CONFIG.data_dir
+    reserved = {os.path.basename(CONFIG.chroma_dir), os.path.basename(CONFIG.feedback_dir)}
+    out = []
+    if os.path.isdir(data_dir):
+        for root, dirs, files in os.walk(data_dir):
+            dirs[:] = [d for d in dirs if d not in reserved]
+            for f in files:
+                if "." in f and f.rsplit(".", 1)[-1].lower() in SUPPORTED_EXTS:
+                    rel = os.path.relpath(os.path.join(root, f), data_dir)
+                    out.append(rel.replace("\\", "/"))
+    return sorted(out)
+
+
+def top_folder(rel_path: str) -> str:
+    """data_dir 기준 상대경로 → 최상위 폴더명(하위폴더 없으면 '미분류')."""
+    parts = rel_path.replace("\\", "/").split("/")
+    return parts[0] if len(parts) > 1 else "미분류"
+
+
 def _file_fingerprint(path: str) -> dict:
     with open(path, "rb") as f:
         data = f.read()
@@ -79,8 +101,10 @@ class Indexer:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     def _scan(self) -> dict:
+        reserved = {os.path.basename(CONFIG.chroma_dir), os.path.basename(CONFIG.feedback_dir)}
         current = {}
-        for root, _dirs, files in os.walk(self.data_dir):
+        for root, dirs, files in os.walk(self.data_dir):
+            dirs[:] = [d for d in dirs if d not in reserved]   # 인덱스/피드백 산출물 제외
             for name in files:
                 ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
                 if ext not in SUPPORTED_EXTS:
@@ -128,6 +152,9 @@ class Indexer:
                 manifest[sf] = {**current[sf], "chunk_ids": []}
                 stats["skipped"] += 1
                 continue
+            folder = top_folder(sf)                 # 폴더 분류 태그
+            for c in chunks:
+                c.metadata["folder"] = folder
             texts = [c.text for c in chunks]
             ids = [c.metadata["chunk_id"] for c in chunks]
             vecs = self._embed_batched(texts)

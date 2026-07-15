@@ -92,6 +92,18 @@ def feedback_form(kind: str, prefill: dict, key: str):
             st.success(("비식별화되어 " if redact else "") + "저장되었습니다. '개선 기록' 탭에서 반출하세요.")
 
 
+def _folders():
+    try:
+        from rag.index.store import VectorStore
+        return VectorStore().folders()
+    except Exception:
+        return []
+
+
+def _where(folders):
+    return {"folder": {"$in": folders}} if folders else None
+
+
 st.set_page_config(page_title="사내 지식 RAG", layout="wide")
 st.title("사내 지식 공유 · 통신로그 분석 플랫폼")
 
@@ -104,12 +116,14 @@ tab_qa, tab_log, tab_fb, tab_admin = st.tabs(
 # ===========================================================================
 with tab_qa:
     st.subheader("문서 질의응답")
+    qa_folders = st.multiselect("폴더 필터 (미선택=전체)", _folders(), key="qa_folders")
     query = st.text_input("질문", key="qa_query",
                           placeholder="예: XM-200 코인 투입 명령 코드는?")
     if st.button("검색", key="qa_btn") and query.strip():
         try:
             with st.spinner("검색·리랭킹·생성 중…"):
-                st.session_state["qa_result"] = get_pipeline().answer(query.strip())
+                st.session_state["qa_result"] = get_pipeline().answer(
+                    query.strip(), where=_where(qa_folders))
                 st.session_state["qa_q"] = query.strip()
         except Exception as e:
             st.error(f"오류: {e}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
@@ -142,6 +156,7 @@ with tab_log:
                           key="log_up")
     log_q = st.text_input("질문(선택)", key="log_q",
                           placeholder="예: 이 로그의 통신 흐름과 이상 프레임을 설명해줘")
+    log_folders = st.multiselect("폴더 필터 (미선택=전체)", _folders(), key="log_folders")
 
     if up is not None:
         raw = up.read()
@@ -165,7 +180,8 @@ with tab_log:
         st.markdown("#### 프로토콜 명세 확인 (필수)")
         try:
             retriever, llm = get_retriever_llm()
-            cands = find_spec_candidates(retriever, text or "", log_q, top_k=5)
+            cands = find_spec_candidates(retriever, text or "", log_q, top_k=5,
+                                         folders=log_folders or None)
         except Exception as e:
             cands, llm = [], None
             st.error(f"명세 후보 검색 실패: {e}")
@@ -277,7 +293,9 @@ with tab_admin:
 
     # --- 문서 업로드 → 저장 + 인덱싱 ---
     st.markdown("#### 문서 업로드")
-    st.caption(f"지원: {', '.join(_EXTS)}  (HWP·구형 doc/xls 는 미지원 → PDF 등으로 변환)")
+    st.caption(f"지원: {', '.join(_EXTS)}  (.doc 는 서버 Word/LibreOffice 필요)")
+    up_folder = st.text_input("업로드 폴더(분류, 비우면 미분류)", key="up_folder",
+                              placeholder="예: 발매 / 정산 / 충전")
     ups = st.file_uploader("사내 문서 업로드 (여러 개 선택 가능)", type=_EXTS,
                            accept_multiple_files=True, key="doc_up")
     if st.button("⬆️ 업로드 저장 + 인덱싱", key="up_index"):
@@ -285,10 +303,12 @@ with tab_admin:
             st.warning("먼저 파일을 선택하세요.")
         else:
             try:
-                os.makedirs(CONFIG.data_dir, exist_ok=True)
+                dest = os.path.join(CONFIG.data_dir, os.path.basename(up_folder.strip())) \
+                    if up_folder.strip() else CONFIG.data_dir
+                os.makedirs(dest, exist_ok=True)
                 saved = []
                 for f in ups:
-                    with open(os.path.join(CONFIG.data_dir, f.name), "wb") as out:
+                    with open(os.path.join(dest, f.name), "wb") as out:
                         out.write(f.getbuffer())
                     saved.append(f.name)
                 st.info(f"저장 {len(saved)}개: {', '.join(saved[:20])}")
@@ -298,10 +318,8 @@ with tab_admin:
 
     # --- 현재 인덱싱 대상 문서 ---
     st.markdown("#### 현재 문서")
-    docs = []
-    if os.path.isdir(CONFIG.data_dir):
-        docs = [f for _r, _d, fs in os.walk(CONFIG.data_dir) for f in fs
-                if "." in f and f.rsplit(".", 1)[-1].lower() in SUPPORTED_EXTS]
+    from rag.index.indexer import list_documents
+    docs = list_documents()
     st.write(f"인덱싱 대상 문서 **{len(docs)}개**")
     if docs:
         with st.expander("문서 목록 보기"):

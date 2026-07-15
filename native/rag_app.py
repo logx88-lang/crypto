@@ -67,6 +67,28 @@ class App(tk.Tk):
         self._build_log()
         self._build_fb()
         self._build_admin()
+        self._load_folders()
+
+    # --- 폴더 필터 ---
+    def _folder_box(self, parent):
+        fr = ttk.LabelFrame(parent, text="폴더 필터 (미선택=전체)")
+        lb = tk.Listbox(fr, selectmode="multiple", height=3, exportselection=False)
+        lb.pack(fill="x", padx=4, pady=2)
+        return fr, lb
+
+    @staticmethod
+    def _sel(lb):
+        return [lb.get(i) for i in lb.curselection()]
+
+    def _load_folders(self):
+        def done(res):
+            fs = res.get("folders", [])
+            for lb in (getattr(self, "qa_folders", None), getattr(self, "log_folders", None)):
+                if lb is not None:
+                    lb.delete(0, "end")
+                    for x in fs:
+                        lb.insert("end", x)
+        self._async(lambda: _req("GET", "/folders"), done, "폴더 조회…")
 
     # --- 공통: 비동기 실행(GUI 멈춤 방지) ---
     def _async(self, fn, on_done, busy="처리 중…"):
@@ -106,6 +128,7 @@ class App(tk.Tk):
     # =========================== 문서 QA ===========================
     def _build_qa(self):
         f = self.tab_qa
+        fbf, self.qa_folders = self._folder_box(f); fbf.pack(fill="x", padx=8, pady=(6, 0))
         top = ttk.Frame(f); top.pack(fill="x", padx=8, pady=6)
         self.qa_q = ttk.Entry(top)
         self.qa_q.pack(side="left", fill="x", expand=True)
@@ -121,7 +144,8 @@ class App(tk.Tk):
         q = self.qa_q.get().strip()
         if not q:
             return
-        self._async(lambda: _req("POST", "/qa", {"question": q}), self._qa_show, "검색·생성 중…")
+        body = {"question": q, "folders": self._sel(self.qa_folders)}
+        self._async(lambda: _req("POST", "/qa", body), self._qa_show, "검색·생성 중…")
 
     def _qa_show(self, res):
         self._set(self.qa_ans, res.get("answer", ""))
@@ -134,6 +158,7 @@ class App(tk.Tk):
         top = ttk.Frame(f); top.pack(fill="x", padx=8, pady=6)
         ttk.Button(top, text="로그 파일 열기", command=self._log_open).pack(side="left")
         self.log_name = ttk.Label(top, text="(파일 없음)"); self.log_name.pack(side="left", padx=6)
+        fbf, self.log_folders = self._folder_box(f); fbf.pack(fill="x", padx=8)
         q = ttk.Frame(f); q.pack(fill="x", padx=8)
         ttk.Label(q, text="질문:").pack(side="left")
         self.log_q = ttk.Entry(q); self.log_q.pack(side="left", fill="x", expand=True)
@@ -159,7 +184,8 @@ class App(tk.Tk):
         if not self.log_text_cache:
             messagebox.showwarning("알림", "먼저 로그 파일을 여세요."); return
         self._async(lambda: _req("POST", "/log/candidates",
-                                 {"log_text": self.log_text_cache, "question": self.log_q.get()}),
+                                 {"log_text": self.log_text_cache, "question": self.log_q.get(),
+                                  "folders": self._sel(self.log_folders)}),
                     self._log_cands_show, "명세 후보 검색 중…")
 
     def _log_cands_show(self, res):
@@ -273,11 +299,17 @@ class App(tk.Tk):
     # =========================== 관리 ===========================
     def _build_admin(self):
         f = self.tab_admin
+        fr0 = ttk.Frame(f); fr0.pack(fill="x", padx=8, pady=(8, 0))
+        ttk.Label(fr0, text="업로드 폴더(분류):").pack(side="left")
+        self.upload_folder = ttk.Entry(fr0, width=20)
+        self.upload_folder.pack(side="left", padx=4)
+        ttk.Label(fr0, text="(비우면 미분류)").pack(side="left")
         top = ttk.Frame(f); top.pack(fill="x", padx=8, pady=8)
         ttk.Button(top, text="문서 업로드 + 인덱싱", command=self._admin_upload).pack(side="left")
         ttk.Button(top, text="증분 인덱싱", command=lambda: self._admin_index(False)).pack(side="left", padx=4)
         ttk.Button(top, text="전체 재인덱싱", command=lambda: self._admin_index(True)).pack(side="left")
-        ttk.Button(top, text="문서 목록 새로고침", command=self._admin_docs).pack(side="left", padx=4)
+        ttk.Button(top, text="문서 목록", command=self._admin_docs).pack(side="left", padx=4)
+        ttk.Button(top, text="폴더 새로고침", command=self._load_folders).pack(side="left")
         fr, self.admin_view = self._text(f, 26); fr.pack(fill="both", expand=True, padx=8, pady=6)
 
     def _admin_upload(self):
@@ -286,14 +318,16 @@ class App(tk.Tk):
         if not paths:
             return
 
+        folder = self.upload_folder.get().strip()
+
         def do():
             for p in paths:
                 with open(p, "rb") as fh:
-                    _req("POST", "/upload", {"name": os.path.basename(p),
+                    _req("POST", "/upload", {"name": os.path.basename(p), "folder": folder,
                                              "content_b64": base64.b64encode(fh.read()).decode()})
             return _req("POST", "/index", {"full": False})
         self._async(do, lambda r: (self._set(self.admin_view, f"업로드+인덱싱 완료:\n{r.get('stats')}"),
-                                    self._admin_docs()), "업로드·인덱싱 중…")
+                                    self._admin_docs(), self._load_folders()), "업로드·인덱싱 중…")
 
     def _admin_index(self, full):
         self._async(lambda: _req("POST", "/index", {"full": full}),

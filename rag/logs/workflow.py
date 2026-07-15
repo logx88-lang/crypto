@@ -26,16 +26,19 @@ def analyze(data, profile: Optional[ParsingProfile] = None, is_binary: bool = Fa
 
 # --- 2. 명세 후보 검색 (doc_type=protocol_spec) ----------------------------
 def find_spec_candidates(retriever, log_text: str, question: str = "",
-                         top_k: int = 5) -> list:
+                         top_k: int = 5, folders=None) -> list:
     """로그 단서 + 질문으로 프로토콜 명세 후보를 하이브리드 검색.
 
     자동 해석 금지 — 반환 후보는 UI 확인 단계 입력이다.
     같은 (문서·섹션) 중복을 제거하고, 표 청크를 우선해 후보 다양성을 확보한다.
+    folders 지정 시 해당 폴더로 범위 제한.
     """
     preview = "\n".join(log_text.splitlines()[:8])
     query = " ".join(p for p in (question, preview) if p).strip()
-    raw = retriever.search(query, top_k=max(top_k * 6, 30),
-                           where={"doc_type": "protocol_spec"})
+    where = {"doc_type": "protocol_spec"}
+    if folders:
+        where["folder"] = {"$in": list(folders)}
+    raw = retriever.search(query, top_k=max(top_k * 6, 30), where=where)
 
     def _doc(c):
         m = c.get("metadata", {})

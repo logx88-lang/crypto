@@ -67,18 +67,32 @@ def h_health(_body):
             "data_dir": CONFIG.data_dir}
 
 
+def _folder_where(body):
+    folders = body.get("folders") or []
+    return {"folder": {"$in": list(folders)}} if folders else None
+
+
 def h_qa(body):
     q = (body.get("question") or "").strip()
     if not q:
         return {"error": "question 필요"}
-    return _pipeline().answer(q)
+    return _pipeline().answer(q, where=_folder_where(body))
+
+
+def h_folders(_body):
+    from ..index.store import VectorStore
+    try:
+        return {"folders": VectorStore().folders()}
+    except Exception:
+        return {"folders": []}
 
 
 def h_log_candidates(body):
     from ..logs.workflow import find_spec_candidates
     retr, _llm = _retriever_llm()
     cands = find_spec_candidates(retr, body.get("log_text", ""),
-                                 body.get("question", ""), top_k=body.get("top_k", 5))
+                                 body.get("question", ""), top_k=body.get("top_k", 5),
+                                 folders=body.get("folders") or None)
     out = []
     for c in cands:
         m = c.get("metadata", {})
@@ -119,22 +133,21 @@ def h_index(body):
 
 
 def h_docs(_body):
-    from ..ingest import SUPPORTED_EXTS
-    docs = []
-    if os.path.isdir(CONFIG.data_dir):
-        docs = [f for _r, _d, fs in os.walk(CONFIG.data_dir) for f in fs
-                if "." in f and f.rsplit(".", 1)[-1].lower() in SUPPORTED_EXTS]
-    return {"docs": sorted(docs), "count": len(docs)}
+    from ..index.indexer import list_documents
+    docs = list_documents()
+    return {"docs": docs, "count": len(docs)}
 
 
 def h_upload(body):
     name = os.path.basename(body.get("name", "").strip())
     if not name or "content_b64" not in body:
         return {"error": "name/content_b64 필요"}
-    os.makedirs(CONFIG.data_dir, exist_ok=True)
-    with open(os.path.join(CONFIG.data_dir, name), "wb") as f:
+    folder = os.path.basename((body.get("folder") or "").strip())   # 하위폴더(선택)
+    dest_dir = os.path.join(CONFIG.data_dir, folder) if folder else CONFIG.data_dir
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(os.path.join(dest_dir, name), "wb") as f:
         f.write(base64.b64decode(body["content_b64"]))
-    return {"saved": name}
+    return {"saved": name, "folder": folder or "미분류"}
 
 
 def h_feedback(body):
@@ -161,6 +174,7 @@ def h_feedback_export(_body):
 
 ROUTES = {
     ("GET", "/health"): h_health,
+    ("GET", "/folders"): h_folders,
     ("POST", "/qa"): h_qa,
     ("POST", "/log/candidates"): h_log_candidates,
     ("POST", "/log/analyze"): h_log_analyze,

@@ -86,3 +86,12 @@ class VectorStore:
         """전체 (ids, documents) — BM25 재구축용. 빈 컬렉션은 ([], [])."""
         res = self._col.get(include=["documents"])
         return res.get("ids", []), res.get("documents", [])
+
+    def folders(self) -> list:
+        """인덱싱된 청크의 distinct folder 목록(정렬)."""
+        res = self._col.get(include=["metadatas"])
+        fs = set()
+        for m in res.get("metadatas", []) or []:
+            if m and m.get("folder"):
+                fs.add(m["folder"])
+        return sorted(fs)

@@ -28,7 +28,10 @@ def _matches_where(meta: dict, where: dict) -> bool:
     if not where:
         return True
     for key, val in where.items():
-        if meta.get(key) != val:
+        if isinstance(val, dict) and "$in" in val:
+            if meta.get(key) not in val["$in"]:
+                return False
+        elif meta.get(key) != val:
             return False
     return True
 
