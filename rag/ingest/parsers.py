@@ -12,8 +12,8 @@ from ..config import CONFIG
 from .models import Element, ParsedDoc
 from .tables import table_to_markdown
 
-SUPPORTED_EXTS = {"xlsx", "docx", "pptx", "pdf", "txt",
-                  "png", "jpg", "jpeg", "bmp", "tiff", "tif"}   # 이미지=OCR(§8)
+SUPPORTED_EXTS = {"xlsx", "docx", "doc", "pptx", "pdf", "txt",
+                  "png", "jpg", "jpeg", "bmp", "tiff", "tif"}   # 이미지=OCR(§8), doc=변환
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +109,69 @@ def parse_docx(path: str) -> ParsedDoc:
     sample = "\n".join(e.text[:200] for e in elements[:8])
     return ParsedDoc(source_file=os.path.basename(path), doc_title=title,
                      doc_type=_classify(title, sample), ext="docx", elements=elements)
+
+
+# ---------------------------------------------------------------------------
+# doc (구형 이진 워드) — .docx 로 변환 후 파싱(표/제목계층 보존)
+# ---------------------------------------------------------------------------
+def _convert_doc_to_docx(path: str) -> str:
+    """구형 .doc → 임시 .docx 변환. MS Word(win32com) 우선, 없으면 LibreOffice. 실패 시 None."""
+    import tempfile
+    abspath = os.path.abspath(path)
+    out = os.path.join(tempfile.mkdtemp(), "converted.docx")
+    # 1) MS Word COM (Windows + Word 설치 시)
+    try:
+        import win32com.client  # type: ignore
+        word = win32com.client.DispatchEx("Word.Application")
+        word.Visible = False
+        try:
+            d = word.Documents.Open(abspath, ReadOnly=True)
+            d.SaveAs2(out, FileFormat=16)   # 16 = wdFormatDocumentDefault(.docx)
+            d.Close(False)
+        finally:
+            word.Quit()
+        if os.path.exists(out):
+            return out
+    except Exception:
+        pass
+    # 2) LibreOffice (soffice --headless)
+    try:
+        import subprocess
+        outdir = os.path.dirname(out)
+        for exe in ("soffice", "soffice.exe",
+                    r"C:\Program Files\LibreOffice\program\soffice.exe"):
+            try:
+                subprocess.run([exe, "--headless", "--convert-to", "docx",
+                                "--outdir", outdir, abspath],
+                               check=True, timeout=180,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cand = os.path.join(outdir,
+                                    os.path.splitext(os.path.basename(path))[0] + ".docx")
+                if os.path.exists(cand):
+                    return cand
+            except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def parse_doc(path: str) -> ParsedDoc:
+    tmp = _convert_doc_to_docx(path)
+    if not tmp:
+        raise ValueError(
+            "'.doc' 변환 실패 — 서버에 MS Word 또는 LibreOffice가 필요합니다. "
+            "없으면 문서를 .docx 로 저장 후 업로드하세요.")
+    doc = parse_docx(tmp)      # 변환된 docx 를 기존 파서로(표·제목계층 그대로)
+    # 원본 정보로 교체
+    doc.source_file = os.path.basename(path)
+    doc.ext = "doc"
+    try:
+        import shutil
+        shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
+    except Exception:
+        pass
+    return doc
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +299,7 @@ def parse_image(path: str, ocr_backend=None) -> ParsedDoc:
 
 
 _DISPATCH = {
-    "xlsx": parse_xlsx, "docx": parse_docx, "pptx": parse_pptx,
+    "xlsx": parse_xlsx, "docx": parse_docx, "doc": parse_doc, "pptx": parse_pptx,
     "pdf": parse_pdf, "txt": parse_txt,
     "png": parse_image, "jpg": parse_image, "jpeg": parse_image,
     "bmp": parse_image, "tiff": parse_image, "tif": parse_image,

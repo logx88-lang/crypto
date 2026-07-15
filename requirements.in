@@ -25,6 +25,7 @@ ollama               # Ollama 파이썬 클라이언트 (엔진·모델은 배�
 # --- 문서 파서 ---
 openpyxl             # xlsx
 python-docx          # docx
+pywin32              # .doc(구형 워드) Word COM 변환용(Windows). 대안 LibreOffice
 python-pptx          # pptx (Pillow 동반)
 pdfplumber           # pdf (표+텍스트, 순수 파이썬/MIT, pdfminer.six 동반) — 프로토콜 명세 주 포맷
 charset-normalizer   # txt 인코딩 자동 판별 (EUC-KR/CP949/UTF-8)

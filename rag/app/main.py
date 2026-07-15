@@ -266,7 +266,7 @@ with tab_fb:
 with tab_admin:
     st.subheader("인덱스 관리")
     from rag.ingest import SUPPORTED_EXTS
-    _EXTS = ["xlsx", "docx", "pptx", "pdf", "txt", "png", "jpg", "jpeg", "bmp", "tiff", "tif"]
+    _EXTS = ["xlsx", "docx", "doc", "pptx", "pdf", "txt", "png", "jpg", "jpeg", "bmp", "tiff", "tif"]
 
     def _run_index(full: bool):
         from rag.index.indexer import Indexer

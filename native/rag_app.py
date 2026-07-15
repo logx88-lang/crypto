@@ -282,7 +282,7 @@ class App(tk.Tk):
 
     def _admin_upload(self):
         paths = filedialog.askopenfilenames(
-            filetypes=[("문서", "*.xlsx *.docx *.pptx *.pdf *.txt *.png *.jpg *.jpeg *.bmp *.tiff")])
+            filetypes=[("문서", "*.xlsx *.docx *.doc *.pptx *.pdf *.txt *.png *.jpg *.jpeg *.bmp *.tiff")])
         if not paths:
             return
 
