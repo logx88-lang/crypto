@@ -92,16 +92,23 @@ def feedback_form(kind: str, prefill: dict, key: str):
             st.success(("비식별화되어 " if redact else "") + "저장되었습니다. '개선 기록' 탭에서 반출하세요.")
 
 
-def _folders():
-    try:
-        from rag.index.store import VectorStore
-        return VectorStore().folders()
-    except Exception:
-        return []
-
-
-def _where(folders):
-    return {"folder": {"$in": folders}} if folders else None
+def _scope_files(label, key):
+    """폴더/파일 통합 멀티셀렉트 → 선택된 파일(rel_path) 목록. 폴더 선택=하위 전체."""
+    from rag.index.indexer import list_documents
+    files = list_documents()
+    folders = set()
+    for f in files:
+        parts = f.split("/")
+        for i in range(1, len(parts)):
+            folders.add("/".join(parts[:i]) + "/")
+    sel = st.multiselect(label, sorted(folders) + files, key=key)
+    chosen = set()
+    for s in sel:
+        if s.endswith("/"):
+            chosen.update(f for f in files if f.startswith(s))
+        else:
+            chosen.add(s)
+    return sorted(chosen) or None
 
 
 st.set_page_config(page_title="사내 지식 RAG", layout="wide")
@@ -116,14 +123,14 @@ tab_qa, tab_log, tab_fb, tab_admin = st.tabs(
 # ===========================================================================
 with tab_qa:
     st.subheader("문서 질의응답")
-    qa_folders = st.multiselect("폴더 필터 (미선택=전체)", _folders(), key="qa_folders")
+    qa_files = _scope_files("범위 (폴더/파일 체크, 미선택=전체)", "qa_scope")
     query = st.text_input("질문", key="qa_query",
                           placeholder="예: XM-200 코인 투입 명령 코드는?")
     if st.button("검색", key="qa_btn") and query.strip():
         try:
             with st.spinner("검색·리랭킹·생성 중…"):
-                st.session_state["qa_result"] = get_pipeline().answer(
-                    query.strip(), where=_where(qa_folders))
+                _w = {"rel_path": {"$in": qa_files}} if qa_files else None
+                st.session_state["qa_result"] = get_pipeline().answer(query.strip(), where=_w)
                 st.session_state["qa_q"] = query.strip()
         except Exception as e:
             st.error(f"오류: {e}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
@@ -156,7 +163,7 @@ with tab_log:
                           key="log_up")
     log_q = st.text_input("질문(선택)", key="log_q",
                           placeholder="예: 이 로그의 통신 흐름과 이상 프레임을 설명해줘")
-    log_folders = st.multiselect("폴더 필터 (미선택=전체)", _folders(), key="log_folders")
+    log_files = _scope_files("범위 (폴더/파일 체크, 미선택=전체)", "log_scope")
 
     if up is not None:
         raw = up.read()
@@ -181,7 +188,7 @@ with tab_log:
         try:
             retriever, llm = get_retriever_llm()
             cands = find_spec_candidates(retriever, text or "", log_q, top_k=5,
-                                         folders=log_folders or None)
+                                         files=log_files)
         except Exception as e:
             cands, llm = [], None
             st.error(f"명세 후보 검색 실패: {e}")

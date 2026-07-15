@@ -47,6 +47,58 @@ def _req(method, path, body=None, timeout=600):
         return json.loads(r.read().decode("utf-8"))
 
 
+class CheckTree(ttk.Frame):
+    """폴더/파일 계층 체크박스 트리. 폴더 체크 = 하위 전체 체크. selected_files() = 체크된 파일."""
+    CHK = {True: "☑", False: "☐"}
+
+    def __init__(self, master, height=6):
+        super().__init__(master)
+        self.tree = ttk.Treeview(self, show="tree", height=height, selectmode="none")
+        sb = ttk.Scrollbar(self, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        self.tree.bind("<Button-1>", self._click)
+        self._state, self._isfile, self._path = {}, {}, {}
+
+    def build(self, paths):
+        self.tree.delete(*self.tree.get_children())
+        self._state.clear(); self._isfile.clear(); self._path.clear()
+        nodes = {}
+        for p in sorted(paths):
+            parts = p.split("/")
+            cur, parent = "", ""
+            for i, part in enumerate(parts):
+                cur = cur + "/" + part if cur else part
+                if cur not in nodes:
+                    iid = self.tree.insert(nodes.get(parent, ""), "end",
+                                           text=f"{self.CHK[False]} {part}", open=True)
+                    nodes[cur] = iid
+                    self._state[iid] = False
+                    self._isfile[iid] = (i == len(parts) - 1)
+                    self._path[iid] = cur
+                parent = cur
+
+    def _set(self, iid, val):
+        self._state[iid] = val
+        name = self.tree.item(iid, "text")[2:]
+        self.tree.item(iid, text=f"{self.CHK[val]} {name}")
+        for ch in self.tree.get_children(iid):
+            self._set(ch, val)
+
+    def _click(self, e):
+        if self.tree.identify("element", e.x, e.y) == "Treeitem.indicator":
+            return   # 펼치기 삼각형은 토글 안 함
+        iid = self.tree.identify_row(e.y)
+        if iid:
+            self._set(iid, not self._state.get(iid, False))
+            return "break"
+
+    def selected_files(self):
+        return [self._path[iid] for iid, isf in self._isfile.items()
+                if isf and self._state.get(iid)]
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -67,28 +119,22 @@ class App(tk.Tk):
         self._build_log()
         self._build_fb()
         self._build_admin()
-        self._load_folders()
+        self._load_tree()
 
-    # --- 폴더 필터 ---
-    def _folder_box(self, parent):
-        fr = ttk.LabelFrame(parent, text="폴더 필터 (미선택=전체)")
-        lb = tk.Listbox(fr, selectmode="multiple", height=3, exportselection=False)
-        lb.pack(fill="x", padx=4, pady=2)
-        return fr, lb
+    # --- 폴더/파일 범위 트리 ---
+    def _scope_box(self, parent):
+        fr = ttk.LabelFrame(parent, text="범위 선택 (폴더/파일 체크, 미선택=전체)")
+        tree = CheckTree(fr, height=5)
+        tree.pack(fill="x", padx=4, pady=2)
+        return fr, tree
 
-    @staticmethod
-    def _sel(lb):
-        return [lb.get(i) for i in lb.curselection()]
-
-    def _load_folders(self):
+    def _load_tree(self):
         def done(res):
-            fs = res.get("folders", [])
-            for lb in (getattr(self, "qa_folders", None), getattr(self, "log_folders", None)):
-                if lb is not None:
-                    lb.delete(0, "end")
-                    for x in fs:
-                        lb.insert("end", x)
-        self._async(lambda: _req("GET", "/folders"), done, "폴더 조회…")
+            paths = res.get("docs", [])
+            for tr in (getattr(self, "qa_tree", None), getattr(self, "log_tree", None)):
+                if tr is not None:
+                    tr.build(paths)
+        self._async(lambda: _req("GET", "/docs"), done, "문서 트리 조회…")
 
     # --- 공통: 비동기 실행(GUI 멈춤 방지) ---
     def _async(self, fn, on_done, busy="처리 중…"):
@@ -128,7 +174,7 @@ class App(tk.Tk):
     # =========================== 문서 QA ===========================
     def _build_qa(self):
         f = self.tab_qa
-        fbf, self.qa_folders = self._folder_box(f); fbf.pack(fill="x", padx=8, pady=(6, 0))
+        fbf, self.qa_tree = self._scope_box(f); fbf.pack(fill="x", padx=8, pady=(6, 0))
         top = ttk.Frame(f); top.pack(fill="x", padx=8, pady=6)
         self.qa_q = ttk.Entry(top)
         self.qa_q.pack(side="left", fill="x", expand=True)
@@ -144,7 +190,7 @@ class App(tk.Tk):
         q = self.qa_q.get().strip()
         if not q:
             return
-        body = {"question": q, "folders": self._sel(self.qa_folders)}
+        body = {"question": q, "files": self.qa_tree.selected_files()}
         self._async(lambda: _req("POST", "/qa", body), self._qa_show, "검색·생성 중…")
 
     def _qa_show(self, res):
@@ -158,7 +204,7 @@ class App(tk.Tk):
         top = ttk.Frame(f); top.pack(fill="x", padx=8, pady=6)
         ttk.Button(top, text="로그 파일 열기", command=self._log_open).pack(side="left")
         self.log_name = ttk.Label(top, text="(파일 없음)"); self.log_name.pack(side="left", padx=6)
-        fbf, self.log_folders = self._folder_box(f); fbf.pack(fill="x", padx=8)
+        fbf, self.log_tree = self._scope_box(f); fbf.pack(fill="x", padx=8)
         q = ttk.Frame(f); q.pack(fill="x", padx=8)
         ttk.Label(q, text="질문:").pack(side="left")
         self.log_q = ttk.Entry(q); self.log_q.pack(side="left", fill="x", expand=True)
@@ -185,7 +231,7 @@ class App(tk.Tk):
             messagebox.showwarning("알림", "먼저 로그 파일을 여세요."); return
         self._async(lambda: _req("POST", "/log/candidates",
                                  {"log_text": self.log_text_cache, "question": self.log_q.get(),
-                                  "folders": self._sel(self.log_folders)}),
+                                  "files": self.log_tree.selected_files()}),
                     self._log_cands_show, "명세 후보 검색 중…")
 
     def _log_cands_show(self, res):
@@ -309,7 +355,7 @@ class App(tk.Tk):
         ttk.Button(top, text="증분 인덱싱", command=lambda: self._admin_index(False)).pack(side="left", padx=4)
         ttk.Button(top, text="전체 재인덱싱", command=lambda: self._admin_index(True)).pack(side="left")
         ttk.Button(top, text="문서 목록", command=self._admin_docs).pack(side="left", padx=4)
-        ttk.Button(top, text="폴더 새로고침", command=self._load_folders).pack(side="left")
+        ttk.Button(top, text="범위 새로고침", command=self._load_tree).pack(side="left")
         fr, self.admin_view = self._text(f, 26); fr.pack(fill="both", expand=True, padx=8, pady=6)
 
     def _admin_upload(self):
@@ -327,7 +373,7 @@ class App(tk.Tk):
                                              "content_b64": base64.b64encode(fh.read()).decode()})
             return _req("POST", "/index", {"full": False})
         self._async(do, lambda r: (self._set(self.admin_view, f"업로드+인덱싱 완료:\n{r.get('stats')}"),
-                                    self._admin_docs(), self._load_folders()), "업로드·인덱싱 중…")
+                                    self._admin_docs(), self._load_tree()), "업로드·인덱싱 중…")
 
     def _admin_index(self, full):
         self._async(lambda: _req("POST", "/index", {"full": full}),

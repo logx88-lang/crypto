@@ -67,16 +67,22 @@ def h_health(_body):
             "data_dir": CONFIG.data_dir}
 
 
-def _folder_where(body):
+def _scope_where(body):
+    """범위 필터: files(전체경로) 우선 → rel_path $in, 없으면 folders → folder $in."""
+    files = body.get("files") or []
+    if files:
+        return {"rel_path": {"$in": list(files)}}
     folders = body.get("folders") or []
-    return {"folder": {"$in": list(folders)}} if folders else None
+    if folders:
+        return {"folder": {"$in": list(folders)}}
+    return None
 
 
 def h_qa(body):
     q = (body.get("question") or "").strip()
     if not q:
         return {"error": "question 필요"}
-    return _pipeline().answer(q, where=_folder_where(body))
+    return _pipeline().answer(q, where=_scope_where(body))
 
 
 def h_folders(_body):
@@ -92,7 +98,8 @@ def h_log_candidates(body):
     retr, _llm = _retriever_llm()
     cands = find_spec_candidates(retr, body.get("log_text", ""),
                                  body.get("question", ""), top_k=body.get("top_k", 5),
-                                 folders=body.get("folders") or None)
+                                 folders=body.get("folders") or None,
+                                 files=body.get("files") or None)
     out = []
     for c in cands:
         m = c.get("metadata", {})

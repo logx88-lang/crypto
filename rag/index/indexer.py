@@ -152,9 +152,11 @@ class Indexer:
                 manifest[sf] = {**current[sf], "chunk_ids": []}
                 stats["skipped"] += 1
                 continue
-            folder = top_folder(sf)                 # 폴더 분류 태그
+            folder = top_folder(sf)                 # 최상위 폴더(간단 필터용)
+            rel = sf.replace("\\", "/")             # 전체 상대경로(폴더 트리·파일 필터용)
             for c in chunks:
                 c.metadata["folder"] = folder
+                c.metadata["rel_path"] = rel
             texts = [c.text for c in chunks]
             ids = [c.metadata["chunk_id"] for c in chunks]
             vecs = self._embed_batched(texts)
