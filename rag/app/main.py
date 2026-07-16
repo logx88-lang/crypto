@@ -3,9 +3,12 @@
 실행: streamlit run rag/app/main.py --server.address 0.0.0.0 --server.port 8501
 Ollama(`ollama serve`)와 인덱스(관리 탭)가 필요하다.
 """
+import faulthandler
 import os
 import sys
 from datetime import datetime, timezone
+
+faulthandler.enable()   # 네이티브 크래시(SIGSEGV/SIGABRT 등) 시 stderr에 스택 덤프
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:

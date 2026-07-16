@@ -59,6 +59,9 @@ class Config:
     rrf_k: int = 60
     rerank_top_n: int = 20   # 리랭커 입력 후보 수
     final_k: int = 5         # 최종 컨텍스트 청크 수
+    # 리랭커(sentence-transformers/torch) 사용 여부. RAM/torch 문제 시 0으로 끄면
+    # 하이브리드(RRF) 순위 상위를 그대로 사용(교차인코더 재정렬만 생략).
+    rerank_enabled: bool = _env("RAG_RERANK", "1") not in ("0", "false", "False")
 
     # --- 개선기록(비식별화 반출) ---
     feedback_dir: str = _env("RAG_FEEDBACK_DIR", "data/feedback")

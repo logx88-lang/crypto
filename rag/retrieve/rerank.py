@@ -45,3 +45,16 @@ class Reranker:
             item["rerank_score"] = float(score)
             out.append(item)
         return out
+
+
+class PassthroughReranker:
+    """리랭커 비활성(RAG_RERANK=0) 또는 로드 실패 시 대체. 하이브리드(RRF) 상위를 그대로 사용.
+
+    sentence-transformers/torch 를 전혀 로드하지 않아, torch 네이티브 크래시·RAM 부족을 회피한다.
+    """
+    def scores(self, query: str, texts: list) -> list:
+        return [0.0 for _ in texts]
+
+    def rerank(self, query: str, candidates: list, final_k: int = None) -> list:
+        final_k = final_k or CONFIG.final_k
+        return [dict(c) for c in candidates[:final_k]]

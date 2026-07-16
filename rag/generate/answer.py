@@ -36,13 +36,14 @@ def build_pipeline(cfg=CONFIG) -> RAGPipeline:
     from ..index.store import VectorStore
     from ..index.bm25 import BM25Index
     from ..retrieve.hybrid import HybridRetriever
-    from ..retrieve.rerank import Reranker
+    from ..retrieve.rerank import Reranker, PassthroughReranker
     from .llm import LLMClient
 
     embed = EmbeddingClient()
     store = VectorStore()
     bm25 = BM25Index.load()
     retriever = HybridRetriever(embed, store, bm25, cfg=cfg)
-    reranker = Reranker()
+    # 리랭커 비활성 시 torch 를 아예 로드하지 않음(RAM/네이티브 크래시 회피).
+    reranker = Reranker() if cfg.rerank_enabled else PassthroughReranker()
     llm = LLMClient()
     return RAGPipeline(retriever, reranker, llm, cfg=cfg)
