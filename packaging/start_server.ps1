@@ -61,8 +61,10 @@ if ($scheme -eq "https") {
 Write-Host ""
 
 # 5) Streamlit 구동 (0.0.0.0 바인딩 = 사내망 공개)
+#    gatherUsageStats=false: 폐쇄망이라 외부 통계 전송 시도 제거(익명 지표, 문서내용 무관).
 & ".\.venv\Scripts\streamlit.exe" run rag\app\main.py `
-    --server.address 0.0.0.0 --server.port $Port --server.headless true @sslArgs
+    --server.address 0.0.0.0 --server.port $Port --server.headless true `
+    --browser.gatherUsageStats false @sslArgs
 
 # --- 자동 시작(부팅 시) 방법 ---------------------------------------------
 #  (a) 작업 스케줄러: 트리거=로그온/시작 시, 동작=powershell -File <이 스크립트> (가장 간단)
