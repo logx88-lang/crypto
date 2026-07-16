@@ -10,10 +10,18 @@
 → 서버 IP가 바뀌어도 server.txt 만 고치면 되고, 재빌드 불필요.
 """
 import os
+import ssl
 import sys
 import urllib.request
 
 import webview
+
+# 자체서명 HTTPS 도달성 확인용(파이썬 urllib는 Windows 인증서 저장소를 쓰지 않아 자체서명을
+# 검증 실패시킴). 실제 페이지 표시는 WebView2가 Windows 신뢰저장소로 정상 검증하므로,
+# 이 확인은 '서버가 응답하는지'만 보면 되어 검증을 끈다.
+_NOVERIFY = ssl.create_default_context()
+_NOVERIFY.check_hostname = False
+_NOVERIFY.verify_mode = ssl.CERT_NONE
 
 DEFAULT_URL = "https://192.168.155.89:8501"  # 고정 서버 주소(하드코딩). HTTPS=클립보드 붙여넣기 가능.
 WINDOW_TITLE = "사내 지식 RAG"
@@ -40,7 +48,8 @@ def server_url() -> str:
 
 def _reachable(url: str, timeout: float = 3.0) -> bool:
     try:
-        urllib.request.urlopen(url + "/_stcore/health", timeout=timeout)
+        ctx = _NOVERIFY if url.lower().startswith("https") else None
+        urllib.request.urlopen(url + "/_stcore/health", timeout=timeout, context=ctx)
         return True
     except Exception:
         return False

@@ -12,7 +12,7 @@ import os
 import sys
 
 from cryptography import x509
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -28,6 +28,8 @@ def main():
            x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
            x509.DNSName("localhost")]
     now = datetime.datetime.now(datetime.timezone.utc)
+    # 크롬/Edge(WebView2)는 서버 인증서에 extendedKeyUsage=serverAuth 와 keyUsage 를 요구한다.
+    # 이 확장이 없으면 핸드셰이크를 거부(연결 리셋 → 서버 WinError 10054)한다.
     cert = (x509.CertificateBuilder()
             .subject_name(name).issuer_name(name)
             .public_key(key.public_key())
@@ -36,6 +38,15 @@ def main():
             .not_valid_after(now + datetime.timedelta(days=3650))
             .add_extension(x509.SubjectAlternativeName(san), critical=False)
             .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(x509.KeyUsage(
+                digital_signature=True, key_encipherment=True, key_cert_sign=True,
+                crl_sign=True, content_commitment=False, data_encipherment=False,
+                key_agreement=False, encipher_only=False, decipher_only=False),
+                critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+                           critical=False)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                           critical=False)
             .sign(key, hashes.SHA256()))
 
     with open(os.path.join(outdir, "key.pem"), "wb") as f:
