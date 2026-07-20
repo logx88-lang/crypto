@@ -114,7 +114,9 @@ def _tree_rows(files):
 
 
 def _tree_scope(label, key):
-    """체크박스 트리로 폴더/파일 선택 → 선택된 파일(rel_path) 목록.
+    """접이식 체크박스 트리로 폴더/파일 선택 → 선택된 파일(rel_path) 목록.
+
+    폴더는 기본 '접힘'(▶). ▶를 눌러야 하위가 보인다(파일 많아도 페이지 안 길어짐).
     폴더 체크 = 하위 전체 포함. 파일 개별 체크도 가능. 미선택 시 None(=전체)."""
     from rag.index.indexer import list_documents
     files = list_documents()
@@ -123,14 +125,26 @@ def _tree_scope(label, key):
         return None
 
     rows = _tree_rows(files)
+    open_key = f"{key}__open"
+    open_set = st.session_state.setdefault(open_key, set())   # 기본: 모두 접힘
     folder_ck, file_ck = {}, {}
     with st.expander(label):
-        st.caption("📁 폴더 체크 = 하위 전체 포함 · 📄 파일 개별 체크 · 아무것도 안 하면 전체 대상")
+        st.caption("▶ 눌러 폴더 펼치기 · 📁 폴더 체크=하위 전체 · 📄 파일 개별 체크 · 미선택=전체")
         for depth, path, is_dir, name in rows:
+            anc = path.split("/")[:-1]                        # 조상 폴더가 모두 열려야 표시
+            if not all("/".join(anc[:i + 1]) in open_set for i in range(len(anc))):
+                continue
             indent = "  " * depth      # EM SPACE로 계층 들여쓰기
-            icon = "📁" if is_dir else "📄"
-            ck = st.checkbox(f"{indent}{icon} {name}", key=f"{key}::{path}")
-            (folder_ck if is_dir else file_ck)[path] = ck
+            c1, c2 = st.columns([1, 18])
+            if is_dir:
+                is_open = path in open_set
+                if c1.button("▼" if is_open else "▶", key=f"{key}_tg_{path}"):
+                    open_set.symmetric_difference_update({path})   # 펼침/접힘 토글
+                    st.rerun()
+                folder_ck[path] = c2.checkbox(f"{indent}📁 {name}", key=f"{key}::{path}")
+            else:
+                c1.write("")
+                file_ck[path] = c2.checkbox(f"{indent}📄 {name}", key=f"{key}::{path}")
 
     chosen = set()
     for f in files:
@@ -206,73 +220,66 @@ with tab_log:
         raw = up.read()
         is_binary = up.name.lower().endswith(".dat")
         from rag.logs.detect import detect_log_type
-        from rag.logs.workflow import (analyze, find_spec_candidates,
+        from rag.logs.workflow import (find_spec_candidates,
                                         summarize_analysis, explain)
 
         text = None if is_binary else raw.decode("utf-8", errors="replace")
         ltype = "hex(binary)" if is_binary else detect_log_type(text)
         st.info(f"감지된 로그 종류: **{ltype}**")
 
-        # 원문 미리보기만 표시(휴리스틱 자동파싱은 오해 소지 → 명세 확정 후 1회만 표시).
+        # 원문 미리보기만 표시(파싱은 명세 확정 후 1회만).
         with st.expander("📄 로그 미리보기 (원문 앞부분)"):
             _prev = (text or "").splitlines()[:20]
             st.code("\n".join(_prev) if _prev else "(바이너리 로그 — 미리보기 생략)")
-        try:                                   # 명세 도출 실패 시 폴백용(조용히 계산)
-            analysis = analyze(raw if is_binary else text, is_binary=is_binary)
-        except Exception:
-            analysis = None
 
-        # --- 명세 선택(파일 선택 = 이 단계 하나로 통일) ---
+        # --- 프로토콜 명세 '파일' 선택 (이슈4: 청크 아닌 파일 단위) ---
         st.markdown("#### 프로토콜 명세 선택 (필수)")
-        st.caption("이 로그에 해당하는 프로토콜 문서를 고르세요. 선택 문서에서 프레임 규격을 도출해 파싱합니다.")
+        st.caption("이 로그에 해당하는 프로토콜 **문서(파일)**를 고르세요. 선택 문서에서 프레임 규격·필드표를 찾아 파싱·해석합니다.")
+        from rag.logs.workflow import (spec_files, gather_file_chunks,
+                                       resolve_command_names, _observed_cmd_keys)
         try:
             retriever, llm = get_retriever_llm()
-            cands = find_spec_candidates(retriever, text or "", log_q, top_k=8)
+            cands = find_spec_candidates(retriever, text or "", log_q, top_k=15)
         except Exception as e:
             cands, llm = [], None
             st.error(f"명세 후보 검색 실패: {e}")
 
-        chosen = []
-        if cands:
-            def _clabel(i):
-                m = cands[i]["metadata"]
-                fn = os.path.basename(str(m.get("source_file") or m.get("doc_title") or "문서"))
-                sec = m.get("section") or m.get("page_no") or ""
-                snip = (cands[i].get("document", "")[:35].replace("\n", " ")).strip()
-                return f"[{i+1}] {fn} · {sec} · {snip}…"
-            picked = st.multiselect("프로토콜 명세 (파일명·섹션으로 구분)",
-                                    options=list(range(len(cands))),
-                                    format_func=_clabel, key="log_specs")
-            chosen = [cands[i] for i in picked]
-            with st.expander("후보 명세 원문 (파일명·섹션·내용)"):
-                for i, c in enumerate(cands):
-                    m = c["metadata"]
-                    fn = os.path.basename(str(m.get("source_file") or "문서"))
-                    st.markdown(f"**[{i+1}] {fn}** · {m.get('section','')}")
-                    st.code(c["document"][:1500])
-            if st.button("확정 명세로 파싱·해석", key="log_explain") and chosen:
+        files_opt = spec_files(cands)
+        if files_opt:
+            chosen_files = st.multiselect(
+                "프로토콜 명세 파일", options=files_opt,
+                format_func=lambda f: os.path.basename(str(f)), key="log_spec_files")
+            if st.button("확정 명세로 파싱·해석", key="log_explain") and chosen_files and text is not None:
                 try:
-                    with st.spinner("명세에서 프레임 구조 도출 → 파싱 → 해석 중…"):
-                        use = analysis
-                        st.session_state.pop("log_profile", None)
-                        if text is not None:      # 텍스트 로그: 선택 문서 기반 파싱
-                            from rag.logs.generic import analyze_by_spec
-                            spec_text = "\n\n".join(c.get("document", "") for c in chosen)
-                            parsed = analyze_by_spec(text, spec_text, llm)
-                            if parsed.get("derived"):
-                                use = parsed
-                                st.session_state["log_profile"] = parsed.get("profile")
-                        # 관측 명령을 정의하는 명령표를 검색으로 찾아 이름 매핑 확보(문서 추측 X)
-                        from rag.logs.workflow import resolve_command_names
-                        _names = resolve_command_names(retriever, use)
+                    with st.spinner("명세에서 프레임 규격 도출 → 파싱 → 필드 해석 중…"):
+                        from rag.logs.generic import analyze_by_spec
+                        # 1) 프레임 구조 청크로 파싱
+                        derive_chunks = gather_file_chunks(
+                            retriever, chosen_files,
+                            "전문 포맷 프레임 구조 packet format Command Length Data 체크섬 요청전문 응답전문",
+                            top_k=10)
+                        spec_text = "\n\n".join(c.get("document", "") for c in derive_chunks)
+                        parsed = analyze_by_spec(text, spec_text, llm)
+                        st.session_state["log_profile"] = (
+                            parsed.get("profile") if parsed.get("derived") else None)
+                        # 2) 관측 명령 기반 필드표·해석 청크 수집(선택 파일 범위)
+                        obs = " ".join(("0x" + k[2:] if k.startswith("0X") else k)
+                                       for k in sorted(_observed_cmd_keys(parsed)))
+                        explain_chunks = gather_file_chunks(
+                            retriever, chosen_files,
+                            f"{log_q} {obs} 요청전문 응답전문 전문 포맷 필드 TYPE LEN 비고 DATA",
+                            top_k=16)
+                        _where = {"source_file": {"$in": chosen_files}}
+                        _names = resolve_command_names(retriever, parsed, where=_where)
                         st.session_state["log_cmd_names"] = _names
-                        st.session_state["log_parsed"] = use
-                        st.session_state["log_out"] = explain(llm, log_q, use, chosen,
-                                                              cmd_names=_names)
+                        st.session_state["log_parsed"] = parsed
+                        st.session_state["log_chosen"] = explain_chunks
+                        st.session_state["log_out"] = explain(
+                            llm, log_q, parsed, explain_chunks, cmd_names=_names)
                 except Exception as e:
                     st.error(f"해석 실패: {e}")
-            elif not picked:
-                st.caption("⚠️ 명세를 1개 이상 선택해야 해석할 수 있습니다(자동 추측 금지).")
+            elif not chosen_files:
+                st.caption("⚠️ 명세 파일을 1개 이상 선택해야 해석할 수 있습니다(자동 추측 금지).")
         else:
             st.caption("명세 후보가 없습니다. 관리 탭에서 프로토콜 명세 문서를 먼저 인덱싱하세요.")
 
@@ -292,7 +299,8 @@ with tab_log:
 
         feedback_form("log", {"question": log_q or "(로그 분석)",
                               "answer": st.session_state.get("log_out", ""),
-                              "contexts": chosen}, key="fb_log")
+                              "contexts": st.session_state.get("log_chosen", [])},
+                      key="fb_log")
 
 
 # ===========================================================================
@@ -345,7 +353,12 @@ with tab_admin:
         from rag.index.indexer import Indexer
         with st.spinner("전체 재인덱싱 중…" if full else "인덱싱 중…"):
             stats = Indexer().reindex(full=full)
+        failed = stats.pop("failed", [])
         st.success(f"인덱싱 완료: {stats}")
+        if failed:                     # .doc 변환 실패 등 — 왜 안 됐는지 노출
+            st.error(f"⚠️ {len(failed)}개 파일 실패:")
+            for f in failed:
+                st.caption(f"• {f['file']} — {f['error']}")
         get_pipeline.clear(); get_retriever_llm.clear()
 
     # --- 문서 업로드 → 저장 + 인덱싱 ---
@@ -353,15 +366,9 @@ with tab_admin:
     st.markdown("#### 문서 업로드")
     st.caption(f"지원: {', '.join(_EXTS)}  (.doc 는 서버 Word/LibreOffice 필요)")
 
-    # data 폴더 구조를 트리로 보여주고, 기존 폴더에 추가하거나 새 폴더를 만들어 선택
+    # 기존 폴더에 추가하거나 새 폴더를 만들어 업로드 대상 선택(구조는 아래 드롭다운에서 확인)
     _all_files = list_documents()
     _folders = sorted(_folder_set(_all_files))
-    if _folders:
-        with st.expander("📂 현재 data 폴더 구조", expanded=False):
-            for _f in _folders:
-                cnt = sum(1 for x in _all_files if x.startswith(_f + "/"))
-                st.caption(" " * _f.count("/") + f"📁 {_f.split('/')[-1]}  ({cnt})")
-
     _ROOT, _NEW = "\x00root", "\x00new"
     _opts = [_ROOT] + _folders + [_NEW]
 

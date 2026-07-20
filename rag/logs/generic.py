@@ -194,8 +194,11 @@ def parse_delimited(stream: list, profile: dict, times: list = None) -> dict:
             ok = (calc == got)
             if not ok:
                 note = f"{chk['type'].upper()} 불일치"
+        cmd_sz = int(profile.get("cmd", {}).get("size", 1))
+        data = fr[cmd_off + cmd_sz:-2] if len(fr) > cmd_off + cmd_sz + 2 else []
         frames.append({"bytes": fr, "hex": " ".join(f"{x:02X}" for x in fr),
                        "cmd": fr[cmd_off] if len(fr) > cmd_off else None,
+                       "data": list(data), "data_ascii": ascii_dump(data),
                        "time": (times[i] if times and i < len(times) else ""),
                        "valid": ok, "note": note})
         valid += int(ok)

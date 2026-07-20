@@ -114,54 +114,68 @@ def parse_docx(path: str) -> ParsedDoc:
 # ---------------------------------------------------------------------------
 # doc (구형 이진 워드) — .docx 로 변환 후 파싱(표/제목계층 보존)
 # ---------------------------------------------------------------------------
-def _convert_doc_to_docx(path: str) -> str:
-    """구형 .doc → 임시 .docx 변환. MS Word(win32com) 우선, 없으면 LibreOffice. 실패 시 None."""
+def _convert_doc_to_docx(path: str):
+    """구형 .doc → 임시 .docx 변환. MS Word(win32com) 우선, 없으면 LibreOffice.
+
+    반환: (docx경로 또는 None, 실패사유 리스트). 사유는 왜 안 됐는지 UI에 노출용.
+    """
     import tempfile
     abspath = os.path.abspath(path)
-    out = os.path.join(tempfile.mkdtemp(), "converted.docx")
+    out = os.path.abspath(os.path.join(tempfile.mkdtemp(), "converted.docx"))
+    reasons = []
     # 1) MS Word COM (Windows + Word 설치 시)
     try:
         import win32com.client  # type: ignore
-        word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
         try:
-            d = word.Documents.Open(abspath, ReadOnly=True)
-            d.SaveAs2(out, FileFormat=16)   # 16 = wdFormatDocumentDefault(.docx)
-            d.Close(False)
-        finally:
-            word.Quit()
-        if os.path.exists(out):
-            return out
-    except Exception:
-        pass
-    # 2) LibreOffice (soffice --headless)
-    try:
-        import subprocess
-        outdir = os.path.dirname(out)
-        for exe in ("soffice", "soffice.exe",
-                    r"C:\Program Files\LibreOffice\program\soffice.exe"):
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = False
             try:
-                subprocess.run([exe, "--headless", "--convert-to", "docx",
-                                "--outdir", outdir, abspath],
-                               check=True, timeout=180,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                cand = os.path.join(outdir,
-                                    os.path.splitext(os.path.basename(path))[0] + ".docx")
-                if os.path.exists(cand):
-                    return cand
-            except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                continue
-    except Exception:
-        pass
-    return None
+                d = word.Documents.Open(abspath, ReadOnly=True, AddToRecentFiles=False)
+                d.SaveAs2(out, FileFormat=16)   # 16 = wdFormatDocumentDefault(.docx)
+                d.Close(False)
+            finally:
+                word.Quit()
+            if os.path.exists(out):
+                return out, reasons
+            reasons.append("Word 변환 결과 파일 미생성")
+        except Exception as e:
+            reasons.append(f"Word COM 실패({type(e).__name__}): {e}")
+    except ImportError:
+        reasons.append("pywin32(win32com) 미설치")
+    # 2) LibreOffice (soffice --headless)
+    import subprocess
+    outdir = os.path.dirname(out)
+    lo_tried = False
+    for exe in ("soffice", "soffice.exe",
+                r"C:\Program Files\LibreOffice\program\soffice.exe"):
+        try:
+            subprocess.run([exe, "--headless", "--convert-to", "docx",
+                            "--outdir", outdir, abspath],
+                           check=True, timeout=180,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            lo_tried = True
+            cand = os.path.join(outdir,
+                                os.path.splitext(os.path.basename(path))[0] + ".docx")
+            if os.path.exists(cand):
+                return cand, reasons
+        except FileNotFoundError:
+            continue
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            reasons.append(f"LibreOffice 실패: {e}")
+            lo_tried = True
+    if not lo_tried:
+        reasons.append("LibreOffice(soffice) 미설치")
+    return None, reasons
 
 
 def parse_doc(path: str) -> ParsedDoc:
-    tmp = _convert_doc_to_docx(path)
+    tmp, reasons = _convert_doc_to_docx(path)
     if not tmp:
         raise ValueError(
-            "'.doc' 변환 실패 — 서버에 MS Word 또는 LibreOffice가 필요합니다. "
-            "없으면 문서를 .docx 로 저장 후 업로드하세요.")
+            "'.doc' 변환 실패 [" + " / ".join(reasons) + "]. "
+            "MS Word 또는 LibreOffice가 필요합니다(없으면 .docx 로 저장 후 업로드). "
+            "Word가 설치돼 있는데도 실패하면 pywin32 설치 여부를 확인하세요.")
     doc = parse_docx(tmp)      # 변환된 docx 를 기존 파서로(표·제목계층 그대로)
     # 원본 정보로 교체
     doc.source_file = os.path.basename(path)

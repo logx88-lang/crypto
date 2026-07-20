@@ -158,11 +158,15 @@ class Indexer:
                 manifest.pop(sf, None)
                 stats["deleted"] += 1
 
-        # 신규/변경 파일 인덱싱
+        # 신규/변경 파일 인덱싱 (파일별 오류 격리 — 한 파일 실패가 전체를 막지 않게)
         for sf in to_index:
             path = os.path.join(self.data_dir, sf)
-            doc = parse_file(path)
-            chunks = chunk_document(doc)
+            try:
+                doc = parse_file(path)
+                chunks = chunk_document(doc)
+            except Exception as e:
+                stats.setdefault("failed", []).append({"file": sf, "error": str(e)})
+                continue
             if not chunks:
                 manifest[sf] = {**current[sf], "chunk_ids": []}
                 stats["skipped"] += 1

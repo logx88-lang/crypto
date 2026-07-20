@@ -203,6 +203,36 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
     return out
 
 
+def _src(c):
+    m = c.get("metadata", {})
+    return m.get("source_file") or m.get("doc_title") or ""
+
+
+def spec_files(candidates: list) -> list:
+    """후보 청크에서 서로 다른 프로토콜 '파일'명 목록(등장 순서). 파일 단위 선택 UI용."""
+    seen, out = set(), []
+    for c in candidates:
+        f = _src(c)
+        if f and f not in seen:
+            seen.add(f)
+            out.append(f)
+    return out
+
+
+def gather_file_chunks(retriever, files: list, query: str, top_k: int = 12) -> list:
+    """선택한 파일(들) 안에서 질의에 맞는 명세 청크를 모은다(파일 단위 선택 → 관련 청크).
+
+    프레임 구조·전문 포맷·명령별 필드표 등 해석에 필요한 청크를 선택 파일 범위로 검색한다.
+    """
+    if not files:
+        return []
+    where = {"doc_type": "protocol_spec", "source_file": {"$in": list(files)}}
+    try:
+        return retriever.search(query, top_k=top_k, where=where)
+    except Exception:
+        return []
+
+
 # --- 3. 파싱결과 요약 (LLM/UI 표시용, 컨텍스트 초과 방지 §7-3) --------------
 def summarize_analysis(analysis: dict, max_frames: int = 40, cmd_names: dict = None) -> str:
     cmd_names = cmd_names or {}
@@ -251,14 +281,18 @@ def summarize_analysis(analysis: dict, max_frames: int = 40, cmd_names: dict = N
     rows = []
     for i, fr in enumerate(frames[:max_frames], start=1):
         cmd = fr.get("cmd")
+        dh = " ".join(f"{b:02X}" for b in fr.get("data", []))   # DATA 바이트(필드 디코딩용)
         if fr.get("cmd_ascii"):           # RF류: 2글자 ASCII 명령 + 길이 + 데이터
-            da = fr.get("data_ascii", "")
-            cmd_s = f"'{fr['cmd_ascii']}' len={fr.get('length')} data='{da[:48]}'"
+            cmd_s = f"CMD='{fr['cmd_ascii']}' len={fr.get('length')}"
+            if dh:
+                cmd_s += f" DATA=[{dh[:200]}]"
         else:
             cmd_s = f"CMD=0x{cmd:02X}" if isinstance(cmd, int) else "CMD=?"
+            if dh:
+                cmd_s += f" DATA=[{dh[:200]}]"
         tpre = f"{fr['time']} " if fr.get("time") else ""
         flag = "OK" if fr.get("valid") else f"✗({fr.get('note','')})"
-        rows.append(f"{i:>3}. {tpre}{cmd_s} [{fr.get('hex','')[:60]}] {flag}")
+        rows.append(f"{i:>3}. {tpre}{cmd_s} 프레임[{fr.get('hex','')[:70]}] {flag}")
     body = "\n".join(rows)
     if total > max_frames:
         body += f"\n… (총 {total} 프레임 중 {max_frames} 표시)"
@@ -302,7 +336,13 @@ def build_log_messages(question: str, analysis: dict, spec_chunks: list,
         "- [참고 명세]는 필드 구조·의미 보충 설명에만 쓰고, 명령 목록의 근거로 삼지 마십시오.\n"
         "- 체크섬/오류 질문: [프레임 상세]에서 ✗로 표시된 프레임만 오류입니다. 모든 프레임이 OK면"
         " '체크섬 오류 프레임이 없습니다(모두 정상)'라고 답하십시오. [참고 명세]의 '에러 코드/Error Code'"
-        " 표는 오류의 정의일 뿐 실제 발생이 아니므로, 이를 근거로 오류가 있다고 지어내지 마십시오."
+        " 표는 오류의 정의일 뿐 실제 발생이 아니므로, 이를 근거로 오류가 있다고 지어내지 마십시오.\n"
+        "★ 필드 단위 해석: 질문이 특정 전문(요청전문/응답전문)의 '파싱·해석'을 요구하면, [프레임 상세]의"
+        " 해당 프레임 `DATA=[..바이트..]` 를, [참고 명세]의 그 명령 전문 필드표(필드명·타입 ASCII/HEX·길이)"
+        " 순서대로 앞에서부터 잘라 각 필드를 다음 형식으로 제시하십시오:\n"
+        "    필드명 (타입, 길이) : 바이트값   예) date (ASCII,14) : 32 30 32 36 … / 응답코드 (HEX,1) : 00(정상)\n"
+        "  - DATA 바이트 순서를 지키고, 각 필드 길이만큼만 소비하십시오. 명세에 없는 필드는 만들지 마십시오.\n"
+        "  - ASCII 필드는 바이트 hex를 그대로 쓰되 필요하면 옆에 (해석)로 문자를 덧붙일 수 있습니다."
     )
     user = (
         f"[파싱 결과]\n{parsed}\n\n"
