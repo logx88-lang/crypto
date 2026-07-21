@@ -157,51 +157,95 @@ def _tree_scope(label, key):
 
 
 st.set_page_config(page_title="사내 지식 RAG", layout="wide")
+
+from rag import chat as chatmod
+
+# --- 로그인 게이트(이름별 대화 분리용 간이 로그인) ---
+if not st.session_state.get("user"):
+    st.title("사내 지식 공유 · 통신로그 분석 플랫폼")
+    st.subheader("로그인")
+    st.caption("사내 전용 간이 로그인 — 이름별로 대화를 분리합니다(처음 쓰는 이름은 자동 등록).")
+    with st.form("login"):
+        _u = st.text_input("사용자 이름")
+        _pw = st.text_input("비밀번호", type="password")
+        if st.form_submit_button("로그인 / 등록"):
+            _ok, _msg = chatmod.login_or_register(_u, _pw)
+            if _ok:
+                st.session_state["user"] = _u.strip()
+                st.rerun()
+            else:
+                st.error(_msg)
+    st.stop()
+
+USER = st.session_state["user"]
+if "conv" not in st.session_state:
+    _cvs = chatmod.list_conversations(USER)
+    st.session_state["conv"] = (chatmod.load_conversation(USER, _cvs[0]["id"])
+                                if _cvs else chatmod.new_conversation(USER))
+
+# --- 사이드바: 대화 관리(여러 대화창 전환/삭제/새로) ---
+with st.sidebar:
+    st.markdown(f"**👤 {USER}**")
+    if st.button("로그아웃", use_container_width=True):
+        st.session_state.pop("user", None); st.session_state.pop("conv", None)
+        st.rerun()
+    st.divider()
+    if st.button("➕ 새 대화", use_container_width=True):
+        st.session_state["conv"] = chatmod.new_conversation(USER); st.rerun()
+    st.caption("대화 목록")
+    for _cv in chatmod.list_conversations(USER):
+        _cur = _cv["id"] == st.session_state["conv"]["id"]
+        if st.button(("● " if _cur else "") + (_cv["title"] or "대화")[:24],
+                     key=f"cv_{_cv['id']}", use_container_width=True):
+            st.session_state["conv"] = chatmod.load_conversation(USER, _cv["id"]); st.rerun()
+    st.divider()
+    if st.button("🗑 현재 대화 삭제", use_container_width=True):
+        chatmod.delete_conversation(USER, st.session_state["conv"]["id"])
+        st.session_state.pop("conv", None); st.rerun()
+
 st.title("사내 지식 공유 · 통신로그 분석 플랫폼")
 
 tab_qa, tab_log, tab_fb, tab_admin = st.tabs(
-    ["📄 문서 QA", "🔌 로그 분석", "🚩 개선 기록", "⚙️ 관리"])
+    ["💬 대화", "🔌 로그 분석", "🚩 개선 기록", "⚙️ 관리"])
 
 
 # ===========================================================================
 # 문서 QA
 # ===========================================================================
 with tab_qa:
-    st.subheader("문서 질의응답")
-    qa_files = _tree_scope("📂 범위 선택 (폴더/파일 체크 · 미선택=전체)", "qa_scope")
-    query = st.text_input("질문", key="qa_query",
-                          placeholder="예: XM-200 코인 투입 명령 코드는?")
-    n_src = st.slider("참고할 근거(출처) 개수", 1, 10, CONFIG.final_k, key="qa_topk",
-                      help="검색·리랭킹 후 답변 생성에 넣을 상위 근거 청크 수. 많을수록 폭넓지만 "
-                           "컨텍스트가 커져 느려지고 답변이 흐려질 수 있습니다.")
-    if st.button("검색", key="qa_btn") and query.strip():
-        try:
-            with st.spinner("검색·리랭킹·생성 중…"):
-                _w = {"rel_path": {"$in": qa_files}} if qa_files else None
-                st.session_state["qa_result"] = get_pipeline().answer(
-                    query.strip(), where=_w, final_k=n_src)
-                st.session_state["qa_q"] = query.strip()
-        except Exception as e:
-            st.error(f"오류: {e}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
+    conv = st.session_state["conv"]
+    st.subheader(f"💬 대화형 문서 QA — {conv.get('title', '새 대화')}")
+    st.caption("후속 질문이 가능합니다(예: '그 명령의 데이터 필드는?'). 대화 전환·초기화는 왼쪽 사이드바.")
+    scope = _tree_scope("📂 문서 범위 (폴더/파일 체크 · 미선택=전체)", "chat_scope")
+    if conv.get("summary"):
+        with st.expander("🧠 이전 대화 요약(자동 압축)"):
+            st.caption(conv["summary"])
 
-    res = st.session_state.get("qa_result")
-    if res:
-        st.markdown("### 답변")
-        ans = (res.get("answer") or "").strip()
-        if ans:
-            st.write(ans)
-        else:
-            st.warning("모델이 빈 답변을 반환했습니다. 근거 개수를 줄이거나 질문을 구체화해 다시 시도하세요. "
-                       "(근거는 아래 출처에서 직접 확인할 수 있습니다.)")
-        if res["sources"]:
-            st.markdown(f"### 출처 ({len(res['sources'])}개)")
-            st.caption("각 출처를 클릭하면 해당 근거 원문만 펼쳐집니다.")
-            for s, c in zip(res["sources"], res["contexts"]):
-                with st.expander(f"[{s['n']}] {s['label']}"):
-                    st.code(c["document"][:2000])
-        feedback_form("qa", {"question": st.session_state.get("qa_q", ""),
-                             "answer": res["answer"], "contexts": res["contexts"]},
-                      key="fb_qa")
+    # 히스토리 표시
+    for m in conv.get("messages", []):
+        with st.chat_message("user" if m["role"] == "user" else "assistant"):
+            st.write(m["content"])
+            if m.get("sources"):
+                st.caption("출처: " + " · ".join(m["sources"]))
+
+    # 입력 → 멀티턴 응답
+    if _q := st.chat_input("질문을 입력하세요 (후속 질문 가능)"):
+        with st.chat_message("user"):
+            st.write(_q)
+        with st.chat_message("assistant"):
+            try:
+                with st.spinner("검색·리랭킹·생성 중…"):
+                    _r = chatmod.answer(get_pipeline(), conv, _q, scope_files=scope)
+                _a = (_r.get("answer") or "").strip()
+                st.write(_a or "제공된 문서에서 근거를 찾지 못했습니다.")
+                if _r["sources"]:
+                    st.caption("출처: " + " · ".join(s["label"] for s in _r["sources"]))
+                    with st.expander("근거 원문 보기"):
+                        for s, c in zip(_r["sources"], _r["contexts"]):
+                            st.markdown(f"**[{s['n']}]** {s['label']}")
+                            st.code(c["document"][:1500])
+            except Exception as e:
+                st.error(f"오류: {e}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
 
 
 # ===========================================================================
