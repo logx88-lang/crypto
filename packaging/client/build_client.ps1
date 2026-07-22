@@ -20,10 +20,11 @@ if (-not $PY) { $PY = "python" }
 .\.build\Scripts\python -m pip install --upgrade pip setuptools wheel
 .\.build\Scripts\pip install pywebview pyinstaller
 
-# 단일 exe 빌드 (--noconsole: 콘솔창 없음)
-.\.build\Scripts\pyinstaller --onefile --noconsole --clean --name rag-client `
-    --collect-all webview `
-    rag_client.py
+# 단일 exe 빌드 (--noconsole: 콘솔창 없음, --icon: 작업표시줄/창 아이콘 = ATEC 말풍선)
+$pyargs = @("--onefile", "--noconsole", "--clean", "--name", "rag-client")
+if (Test-Path .\app.ico) { $pyargs += @("--icon", "app.ico") }
+$pyargs += @("--collect-all", "webview", "rag_client.py")
+.\.build\Scripts\pyinstaller @pyargs
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path .\dist\rag-client.exe)) {
     throw "빌드 실패 — 위 PyInstaller 오류 확인(대개 setuptools 구버전). 로그를 확인하세요."
 }
