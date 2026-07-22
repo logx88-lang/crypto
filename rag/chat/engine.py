@@ -73,10 +73,14 @@ def maybe_summarize(llm, conv: dict, keep: int = 6, max_msgs: int = 14) -> None:
 def answer(pipeline, conv: dict, question: str, scope_files=None,
            final_k: int = None) -> dict:
     """한 턴 답변 → {answer, sources, contexts}. conv 에 사용자/어시스턴트 메시지 추가·저장."""
+    conv.setdefault("messages", [])
+    if conv.get("log"):                       # 로그 첨부 대화 → 로그 분석 경로
+        from .logchat import answer_with_log
+        return answer_with_log(pipeline, conv, question)
+
     cfg = pipeline.cfg
     k = final_k or cfg.final_k
     where = {"rel_path": {"$in": list(scope_files)}} if scope_files else None
-    conv.setdefault("messages", [])
 
     # 검색·생성은 '직전까지의' 히스토리 기준(현재 질문은 아직 추가 안 함 → 중복 방지)
     cands = pipeline.retriever.search(_retrieval_query(conv, question), where=where)

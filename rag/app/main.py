@@ -252,6 +252,39 @@ with tab_qa:
     st.subheader(f"💬 대화형 문서 QA — {conv.get('title', '새 대화')}")
     st.caption("후속 질문이 가능합니다(예: '그 명령의 데이터 필드는?'). 대화 전환·초기화는 왼쪽 사이드바.")
     scope = _tree_scope("📂 문서 범위 (폴더/파일 체크 · 미선택=전체)", "chat_scope")
+
+    # 🔌 로그 첨부(선택) — 붙이면 이 대화가 로그 분석 모드로 동작
+    with st.expander("🔌 로그 첨부 (통신 로그를 대화로 분석)", expanded=bool(conv.get("log"))):
+        if conv.get("log"):
+            _lg = conv["log"]
+            st.success(f"첨부됨: **{_lg.get('name')}** · 프레임 {_lg['parsed'].get('total', 0)}개 · "
+                       f"명세 {[os.path.basename(str(f)) for f in _lg['files']]}")
+            st.caption("아래 대화창에서 질문하세요. 예) '카드 충전 요청 기록 찾아줘' → "
+                       "'그 중 카드번호 1010… 기록' → '해당 앞뒤 10초 전문 필드로 파싱해줘'")
+            if st.button("로그 분리(문서 QA로 전환)"):
+                conv.pop("log", None); chatmod.save_conversation(conv); st.rerun()
+        else:
+            _uplog = st.file_uploader("로그 파일 (.txt/.log/.dat)", type=["txt", "log", "dat"],
+                                      key="chat_logup")
+            if _uplog is not None:
+                _ltext = _uplog.read().decode("utf-8", errors="replace")
+                try:
+                    _pipe = get_pipeline()
+                    from rag.logs.workflow import spec_files, find_spec_candidates
+                    _cands = find_spec_candidates(_pipe.retriever, _ltext, "", top_k=15)
+                    _fopts = spec_files(_cands)
+                    _sel = st.multiselect("이 로그의 프로토콜 명세 파일", _fopts,
+                                          format_func=lambda f: os.path.basename(str(f)),
+                                          key="chat_logfiles")
+                    if st.button("로그 첨부·파싱") and _sel:
+                        from rag.chat import logchat
+                        with st.spinner("명세에서 규격 도출 → 로그 파싱 중…"):
+                            logchat.attach_log(conv, _ltext, _sel, _pipe.retriever,
+                                               _pipe.llm, name=_uplog.name)
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"로그 준비 실패: {e}")
+
     if conv.get("summary"):
         with st.expander("🧠 이전 대화 요약(자동 압축)"):
             st.caption(conv["summary"])
