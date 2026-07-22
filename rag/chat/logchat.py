@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from .store import save_conversation
 from .engine import _history_messages, maybe_summarize
 from ..logs.generic import analyze_by_spec
@@ -29,13 +31,16 @@ def _file_chunks(retriever, files):
 
 LOG_SYSTEM = (
     "/no_think\n"
-    "당신은 통신 로그 분석가입니다. 아래 [로그 명령 요약]과 [프레임 필드 디코드]는 이미 분석이 끝난"
-    " **확정 사실**입니다. 명령·시각·필드값은 반드시 이 값만 사용하고 지어내지 마십시오.\n"
-    "- '특정 명령 기록 찾기' → [로그 명령 요약]에서 그 명령의 발생 시각들을 나열합니다.\n"
-    "- '특정 필드값(예: 카드번호)으로 필터' → [프레임 필드 디코드]에서 그 필드가 그 값인 프레임만 고릅니다.\n"
-    "- '전문 파싱/해석' → [프레임 필드 디코드]의 해당 프레임 필드를 '이름 (타입,길이) : 값' 형식으로 제시합니다.\n"
-    "- '앞뒤 N초' 등은 [프레임 필드 디코드]의 시각을 기준으로 그 범위의 프레임을 보여줍니다.\n"
-    "- 앞선 대화의 '해당/그 기록/위의 것'은 대화 맥락으로 해석합니다. 근거가 없으면 없다고 답합니다."
+    "당신은 통신 로그 분석가입니다. 아래 자료는 첨부 로그를 이미 파싱한 **확정 사실**입니다."
+    " 명령·시각·필드값은 반드시 이 값만 사용하고 지어내지 마십시오.\n"
+    "- [로그 명령 요약]: 명령별 발생 횟수·시각(전체). '특정 명령 찾기'는 여기서 답합니다.\n"
+    "- [전체 프레임 목록]: 로그의 모든 프레임(#번호·시각·명령). '세 번째', '11:25 것' 같은 지목은"
+    " 이 목록의 번호·시각으로 찾습니다.\n"
+    "- [질문 관련 프레임 필드 디코드]: 질문에서 지목된 프레임을 명세 필드표대로 잘라 놓은 것."
+    " '이 명령 파싱/해석해줘'는 그 프레임의 필드를 '이름 (타입,길이) : 값' 형식으로 제시합니다"
+    " (예: 거래일시 (ASCII,14) : … / SAM ID (ASCII,16) : … / 카드 잔액 (HEX,4) : …).\n"
+    "- 특정 필드값(카드번호 등)으로 필터할 때도 이 디코드에서 그 값인 프레임을 고릅니다.\n"
+    "- 앞선 대화의 '해당/그/위의 것'은 대화 맥락으로 해석합니다. 자료에 없으면 없다고 답합니다."
 )
 
 
@@ -114,22 +119,66 @@ def _build_schemas(retriever, files, cmd_names: dict, observed, target_len: dict
     return schemas
 
 
-def _decoded_block(parsed: dict, cmd_names: dict, schemas: dict, max_frames: int = 60) -> str:
-    frames = parsed.get("frames", [])
+def frame_index(parsed: dict) -> str:
+    """전체 프레임 한 줄 목록(#번호 시각 CMD 이름) — '명령 먼저 읽기' 완전 목록. 어떤 프레임이든 지목 가능."""
     lines = []
-    for fr in frames[:max_frames]:
+    for i, fr in enumerate(parsed.get("frames", []), start=1):
+        nm = ""  # 이름은 요약(digest)에서 제공하므로 여기선 간결히
+        lines.append(f"#{i} {fr.get('time', '')} CMD {_cmd_disp(fr)}")
+    return "\n".join(lines)
+
+
+def _kor(s: str) -> str:
+    """문자열에서 한글만 이어붙임(영문 접두어 Card/카드 차이 등 무관하게 이름 매칭용)."""
+    return "".join(ch for ch in (s or "") if "가" <= ch <= "힣")
+
+
+def _select_indices(parsed: dict, cmd_names: dict, query: str) -> list:
+    """질문에 언급된 명령(ID/이름)·시각에 해당하는 프레임 인덱스 선택. 특정 안 되면 [](=전체 판단).
+
+    이름은 한글 부분으로 매칭(명세는 'Card 충전 요청', 사용자는 '카드 충전 요청' → '충전요청'으로 일치).
+    """
+    frames = parsed.get("frames", [])
+    q = query or ""
+    qu = q.upper()
+    q_kor = _kor(q)
+    times = [t.replace("시", ":").replace(" ", "") for t in re.findall(r"\d{1,2}\s*[:시]\s*\d{2}", q)]
+    sel = set()
+    for i, fr in enumerate(frames):
+        cid = _cmd_id(fr)
+        nk = _kor(cmd_names.get(cid, ""))
+        by_cmd = (cid and cid != "?" and re.search(rf"(?<![A-Z0-9]){re.escape(cid)}(?![A-Z0-9])", qu)) \
+            or (len(nk) >= 3 and nk in q_kor)
+        by_time = any(t and t in (fr.get("time", "") or "").replace(" ", "") for t in times)
+        if by_cmd or by_time:
+            sel.add(i)
+    return sorted(sel)
+
+
+def _decoded_block(parsed: dict, cmd_names: dict, schemas: dict,
+                   indices: list, cap: int = 40) -> str:
+    """선택된(질문 관련) 프레임만 필드 디코드. 온디맨드 → 큰 로그도 확장."""
+    frames = parsed.get("frames", [])
+    if not indices:                                  # 특정 명령/시각 언급 없음 → 앞부분 표본
+        indices = list(range(min(len(frames), cap)))
+    lines, shown = [], 0
+    for idx in indices:
+        if shown >= cap:
+            lines.append(f"… (관련 프레임 {len(indices)}개 중 {cap}개 표시)")
+            break
+        if idx >= len(frames):
+            continue
+        fr = frames[idx]
         cid = _cmd_id(fr)
         nm = cmd_names.get(cid, "")
-        head = f"{fr.get('time', '')} CMD {_cmd_disp(fr)}" + (f" {nm}" if nm else "")
-        lines.append(head)
+        lines.append(f"#{idx + 1} {fr.get('time', '')} CMD {_cmd_disp(fr)}" + (f" {nm}" if nm else ""))
         sch = schemas.get(cid)
         if sch and fr.get("data"):
             lines.append(format_decoded(decode_data(fr["data"], sch)))
         elif fr.get("data"):
             lines.append("  DATA=[" + " ".join(f"{b:02X}" for b in fr["data"]) + "]")
-    if len(frames) > max_frames:
-        lines.append(f"… (외 {len(frames) - max_frames} 프레임 생략)")
-    return "\n".join(lines)
+        shown += 1
+    return "\n".join(lines) or "(관련 프레임 없음)"
 
 
 def answer_with_log(pipeline, conv: dict, question: str) -> dict:
@@ -139,8 +188,12 @@ def answer_with_log(pipeline, conv: dict, question: str) -> dict:
     schemas = _build_schemas(pipeline.retriever, files, names, observed,
                              target_len=_cmd_data_lens(parsed))
 
-    digest = summarize_analysis(parsed, cmd_names=names)
-    decoded = _decoded_block(parsed, names, schemas)
+    # 질문(+최근 대화)에서 언급된 명령/시각의 프레임만 골라 상세 디코드(온디맨드) → 큰 로그도 확장
+    hist = " ".join(m["content"] for m in conv.get("messages", [])[-4:] if m["role"] == "user")
+    idxs = _select_indices(parsed, names, question + " " + hist)
+    digest = summarize_analysis(parsed, cmd_names=names)     # 명령별 발생 시각(전체)
+    findex = frame_index(parsed)                             # 전체 프레임 목록(#번호·시각·명령)
+    decoded = _decoded_block(parsed, names, schemas, idxs)   # 관련 프레임 필드 디코드
     spec = gather_file_chunks(pipeline.retriever, files,
                               f"{question} 요청전문 응답전문 필드 전문 포맷 TYPE LEN", top_k=8)
     spec_ctx = "\n\n".join(c.get("document", "") for c in spec) or "(명세 없음)"
@@ -149,7 +202,8 @@ def answer_with_log(pipeline, conv: dict, question: str) -> dict:
     messages += _history_messages(conv)
     messages.append({"role": "user", "content":
                      f"[로그 명령 요약]\n{digest}\n\n"
-                     f"[프레임 필드 디코드]\n{decoded}\n\n"
+                     f"[전체 프레임 목록]\n{findex[:6000]}\n\n"
+                     f"[질문 관련 프레임 필드 디코드]\n{decoded}\n\n"
                      f"[참고 명세]\n{spec_ctx}\n\n[질문]\n{question}"})
     text = pipeline.llm.chat(messages)
 
