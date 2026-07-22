@@ -23,8 +23,9 @@ _NOVERIFY = ssl.create_default_context()
 _NOVERIFY.check_hostname = False
 _NOVERIFY.verify_mode = ssl.CERT_NONE
 
-DEFAULT_URL = "https://192.168.155.89:8501"  # 고정 서버 주소(하드코딩). HTTPS=클립보드 붙여넣기 가능.
-WINDOW_TITLE = "사내 지식 RAG"
+DEFAULT_URL = "http://192.168.155.89:8502"  # 신규 웹 UI(rag.webui). 네이티브 앱이라 HTTP로도
+#   클립보드·파일 업로드/다운로드가 사내 브라우저 정책과 무관하게 동작(HTTPS 불필요).
+WINDOW_TITLE = "사내 지식 QnA"
 
 
 def _base_dir() -> str:
@@ -49,7 +50,7 @@ def server_url() -> str:
 def _reachable(url: str, timeout: float = 3.0) -> bool:
     try:
         ctx = _NOVERIFY if url.lower().startswith("https") else None
-        urllib.request.urlopen(url + "/_stcore/health", timeout=timeout, context=ctx)
+        urllib.request.urlopen(url + "/health", timeout=timeout, context=ctx)
         return True
     except Exception:
         return False
@@ -64,8 +65,8 @@ def main():
             "<div style='font-family:sans-serif;padding:40px;color:#333'>"
             "<h2>서버에 연결할 수 없습니다</h2>"
             f"<p>접속 주소: <b>{url}</b></p><ul>"
-            "<li>업무 PC A(서버)에서 서버가 실행 중인지 확인하세요.</li>"
-            "<li>같은 사내망인지, 방화벽에서 8501 포트가 허용됐는지 확인하세요.</li>"
+            "<li>업무 PC A(서버)에서 서버가 실행 중인지 확인하세요(start_webui.ps1).</li>"
+            "<li>같은 사내망인지, 방화벽에서 8502 포트가 허용됐는지 확인하세요.</li>"
             "<li>주소가 다르면 실행파일 옆 <b>server.txt</b> 를 수정하세요.</li>"
             "</ul></div>"
         )

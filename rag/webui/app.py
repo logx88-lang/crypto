@@ -471,6 +471,10 @@ async def admin_upload(request):
 
 
 # --- 미리보기 --------------------------------------------------------------
+async def health(request):
+    return PlainTextResponse("ok")             # 네이티브 클라이언트 도달성 확인용
+
+
 async def preview(request):
     from .htmlpreview import render_file
     qp = dict(request.query_params)
@@ -500,6 +504,7 @@ app = Starlette(routes=[
     Route("/admin", admin_page),
     Route("/admin/reindex", admin_reindex, methods=["POST"]),
     Route("/admin/upload", admin_upload, methods=["POST"]),
+    Route("/health", health),
     Route("/preview", preview),
     Mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static"),
 ])
