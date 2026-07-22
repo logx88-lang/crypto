@@ -315,13 +315,21 @@ if page == PAGE_CHAT:
     def _render_sources(srcs, key):
         if not srcs:
             return
-        st.caption("출처: " + " · ".join(s["label"] for s in srcs))
-        with st.expander("근거 원문 보기"):     # 턴별 개별 expander → 다음 질문해도 유지(이슈3)
-            for s in srcs:
-                _c1, _c2 = st.columns([5, 1])
-                _c1.markdown(f"**[{s['n']}]** {s['label']}")
-                if s.get("rel_path") and _c2.button("📄 원본", key=f"{key}_pv_{s['n']}"):
+        st.caption("출처 (번호를 누르면 원본 미리보기):")
+        # 답변의 [N] 인용에 대응하는 클릭 가능한 출처 버튼(누르면 미리보기 팝업)
+        _cols = st.columns(min(4, len(srcs)))
+        for _j, s in enumerate(srcs):
+            _fn = os.path.basename(str(s.get("rel_path") or s.get("label") or "문서"))
+            _col = _cols[_j % len(_cols)]
+            if s.get("rel_path"):
+                if _col.button(f"[{s['n']}] {_fn[:20]}", key=f"{key}_pv_{s['n']}",
+                               help=s["label"], use_container_width=True):
                     _open_preview(s["rel_path"], s.get("loc"), s.get("excerpt", ""))
+            else:
+                _col.caption(f"[{s['n']}] {_fn[:20]}")
+        with st.expander("근거 원문(발췌) 보기"):
+            for s in srcs:
+                st.markdown(f"**[{s['n']}]** {s['label']}")
                 _render_excerpt(s.get("excerpt", ""))
 
     # 히스토리 표시(턴별 근거 원문 + 개선 기록 버튼)
