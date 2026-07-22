@@ -18,6 +18,24 @@ from ..config import CONFIG
 _MAX_ELEMENTS = 400   # 대용량 문서 렌더 상한(과부하 방지)
 
 
+def _rows_to_df(rows):
+    """표 행렬 → pandas DataFrame. 열 이름을 항상 고유하게 하고 행 길이를 정규화한다.
+
+    Streamlit(Arrow)은 '중복 열 이름'이면 표시에 실패하므로, 헤더가 유효(중복·빈칸 없음)할
+    때만 헤더로 쓰고, 아니면 '열1, 열2…' 로 대체한다. 짧은 행은 빈칸으로 채운다.
+    """
+    import pandas as pd
+    rows = list(rows or [])
+    if not rows:
+        return pd.DataFrame()
+    ncol = max((len(r) for r in rows), default=0)
+    norm = [[("" if v is None else str(v)) for v in r] + [""] * (ncol - len(r)) for r in rows]
+    header = [c.strip() for c in norm[0]]
+    if len(norm) > 1 and all(header) and len(set(header)) == len(header):
+        return pd.DataFrame(norm[1:], columns=header)
+    return pd.DataFrame(norm, columns=[f"열{i + 1}" for i in range(ncol)])
+
+
 def render_file(rel_path: str, loc: dict = None) -> None:
     loc = loc or {}
     if not rel_path:
@@ -50,22 +68,16 @@ def render_file(rel_path: str, loc: dict = None) -> None:
 
 def _xlsx(path, loc):
     import openpyxl
-    import pandas as pd
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     sheets = wb.sheetnames
     default = loc.get("sheet_name") if loc.get("sheet_name") in sheets else sheets[0]
     sel = st.selectbox("시트", sheets, index=sheets.index(default),
                        key=f"pv_sheet_{path}")
-    ws = wb[sel]
-    rows = [[c.value for c in row] for row in ws.iter_rows()]
+    rows = [[c.value for c in row] for row in wb[sel].iter_rows()]
     if not rows:
         st.info("(빈 시트)")
         return
-    header = [str(x) if x is not None else "" for x in rows[0]]
-    if len(set(header)) != len(header):     # 중복/빈 헤더면 인덱스 헤더 사용
-        df = pd.DataFrame(rows)
-    else:
-        df = pd.DataFrame(rows[1:], columns=header)
+    df = _rows_to_df(rows)
     st.dataframe(df, use_container_width=True, height=min(600, 40 + 28 * len(df)))
 
 
@@ -84,7 +96,6 @@ def _docx(path):
     import docx
     from docx.table import Table
     from docx.text.paragraph import Paragraph
-    import pandas as pd
     d = docx.Document(path)
     cnt = 0
     for ch in d.element.body.iterchildren():
@@ -96,18 +107,14 @@ def _docx(path):
             if t.strip():
                 st.markdown(t); cnt += 1
         elif ch.tag.endswith("}tbl"):
-            tb = Table(ch, d)
-            rows = [[c.text for c in r.cells] for r in tb.rows]
+            rows = [[c.text for c in r.cells] for r in Table(ch, d).rows]
             if rows:
-                df = (pd.DataFrame(rows[1:], columns=rows[0])
-                      if len(rows) > 1 else pd.DataFrame(rows))
-                st.table(df)
+                st.table(_rows_to_df(rows))
             cnt += 1
 
 
 def _pptx(path):
     from pptx import Presentation
-    import pandas as pd
     prs = Presentation(path)
     for i, slide in enumerate(prs.slides, start=1):
         st.markdown(f"**— 슬라이드 {i} —**")
@@ -117,9 +124,7 @@ def _pptx(path):
                 rows = [[tbl.cell(r, c).text for c in range(len(tbl.columns))]
                         for r in range(len(tbl.rows))]
                 if rows:
-                    df = (pd.DataFrame(rows[1:], columns=rows[0])
-                          if len(rows) > 1 else pd.DataFrame(rows))
-                    st.table(df)
+                    st.table(_rows_to_df(rows))
             elif shape.has_text_frame and shape.text_frame.text.strip():
                 st.markdown(shape.text_frame.text)
 
