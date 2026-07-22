@@ -50,6 +50,39 @@ def _context_block(chunks: list) -> str:
     return "\n\n".join(blocks) or "(관련 문서 없음)"
 
 
+import re
+
+# 문서 요약/개요/전체내용 류 질의 — 의미검색 top-k로는 못 잡으므로 문서 내용을 폭넓게 모아 준다.
+_OVERVIEW_RE = re.compile(
+    r"요약|정리해|개요|요점|핵심\s*(내용|정리)|전체\s*내용|무슨\s*(내용|문서|자료)|"
+    r"어떤\s*(내용|문서|자료)|무엇에\s*대한|대략|전반|summary|overview|abstract", re.I)
+
+
+def _is_overview(question: str) -> bool:
+    return bool(_OVERVIEW_RE.search(question or ""))
+
+
+def _gather_scope_docs(pipeline, files: list, max_chars: int = 6000) -> list:
+    """선택 파일들의 청크를 문서·순서대로 모아 예산 내에서 커버리지 컨텍스트 구성(요약용)."""
+    try:
+        got = pipeline.retriever.store._col.get(
+            where={"rel_path": {"$in": list(files)}},
+            include=["documents", "metadatas"])
+        docs, metas = got.get("documents", []), got.get("metadatas", [])
+    except Exception:
+        return []
+    order = sorted(range(len(docs)),
+                   key=lambda i: (metas[i].get("rel_path", ""), str(metas[i].get("chunk_id", ""))))
+    out, total = [], 0
+    for i in order:
+        d = docs[i] or ""
+        if out and total + len(d) > max_chars:
+            break
+        out.append({"document": d, "metadata": metas[i]})
+        total += len(d)
+    return out
+
+
 def maybe_summarize(llm, conv: dict, keep: int = 6, max_msgs: int = 14) -> None:
     """히스토리가 max_msgs 초과 시 오래된 턴을 요약으로 압축하고 최근 keep턴만 유지."""
     msgs = conv.get("messages", [])
@@ -82,14 +115,24 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
     k = final_k or cfg.final_k
     where = {"rel_path": {"$in": list(scope_files)}} if scope_files else None
 
-    # 검색·생성은 '직전까지의' 히스토리 기준(현재 질문은 아직 추가 안 함 → 중복 방지)
-    cands = pipeline.retriever.search(_retrieval_query(conv, question), where=where)
-    top = pipeline.reranker.rerank(question, cands, final_k=k) if cands else []
+    # 요약/개요 류 질의 + 문서 선택 시: 의미검색(top-k) 대신 선택 문서 내용을 폭넓게 모아 종합.
+    overview = scope_files and _is_overview(question)
+    if overview:
+        top = _gather_scope_docs(pipeline, scope_files)
+        label = "선택 문서 내용"
+    else:
+        cands = pipeline.retriever.search(_retrieval_query(conv, question), where=where)
+        top = pipeline.reranker.rerank(question, cands, final_k=k) if cands else []
+        label = "문서 발췌"
+    if overview and not top:                    # 수집 실패 시 일반 검색 폴백
+        cands = pipeline.retriever.search(_retrieval_query(conv, question), where=where)
+        top = pipeline.reranker.rerank(question, cands, final_k=k) if cands else []
+        label = "문서 발췌"
 
     messages = [{"role": "system", "content": CHAT_SYSTEM}]
     messages += _history_messages(conv)
     messages.append({"role": "user", "content":
-                     f"[문서 발췌]\n{_context_block(top)}\n\n[질문]\n{question}"})
+                     f"[{label}]\n{_context_block(top)}\n\n[질문]\n{question}"})
     text = pipeline.llm.chat(messages)
     if not (text or "").strip() and len(top) > 1:      # 빈 답변 방어(컨텍스트 축소 재시도)
         messages[-1]["content"] = (
