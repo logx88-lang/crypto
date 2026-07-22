@@ -118,8 +118,9 @@ def _tree_rows(files):
 def _tree_scope(label, key):
     """접이식 + 상·하위 동기화 체크박스 트리 → 선택된 파일(rel_path) 목록.
 
-    폴더 체크=하위 전체 체크(down), 하위 전체 체크 시 상위 자동 체크(up). 기본 접힘(▶).
-    미선택 시 None(=전체)."""
+    폴더 체크=하위 전체(down). 폴더의 체크 상태는 '렌더할 때마다 현재 자식 기준으로 재계산'(up)
+    → 문서 추가/삭제·대화 전환으로 자식이 바뀌어도 어긋나지 않는다. 파일 체크가 유일한 진짜 상태.
+    기본 접힘(▶). 미선택 시 None(=전체)."""
     from rag.index.indexer import list_documents
     files = list_documents()
     if not files:
@@ -128,7 +129,7 @@ def _tree_scope(label, key):
 
     rows = _tree_rows(files)
     folders = [p for _, p, is_dir, _ in rows if is_dir]
-    children = {f: [] for f in folders}          # 직속 자식(폴더+파일)
+    children = {f: [] for f in folders}
     for _, pth, _, _ in rows:
         parent = "/".join(pth.split("/")[:-1])
         if parent in children:
@@ -143,24 +144,22 @@ def _tree_scope(label, key):
             out.append(c); out += _descendants(c)
         return out
 
-    def _on_toggle(pth):
+    # 렌더 전 재조정: 폴더 = 직속 자식 모두 체크(깊은 폴더부터). 위젯 생성 전에 세팅하므로
+    # 폴더 체크가 현재 자식과 항상 일치(문서 변경·대화 전환에도 어긋나지 않음).
+    for f in sorted(folders, key=lambda p: -p.count("/")):
+        kids = children[f]
+        st.session_state[_ck(f)] = bool(kids) and all(
+            st.session_state.get(_ck(c), False) for c in kids)
+
+    def _on_folder(pth):
         v = st.session_state.get(_ck(pth), False)
-        if pth in children:                       # 폴더 → 하위 전체 동기화(down)
-            for d in _descendants(pth):
-                st.session_state[_ck(d)] = v
-        cur = pth                                 # 상위 재조정(up): 직속 자식 모두 체크면 체크
-        while "/" in cur:
-            par = "/".join(cur.split("/")[:-1])
-            if par not in children:
-                break
-            st.session_state[_ck(par)] = all(
-                st.session_state.get(_ck(c), False) for c in children[par])
-            cur = par
+        for d in _descendants(pth):
+            st.session_state[_ck(d)] = v
 
     open_key = f"{key}__open"
     open_set = st.session_state.setdefault(open_key, set())
     with st.expander(label):
-        st.caption("▶ 펼치기 · 상·하위 체크 동기화(하위 전체 체크 시 상위 체크) · 미선택=전체")
+        st.caption("▶ 펼치기 · 폴더 체크=하위 전체 · 하위 전체 체크 시 상위 자동 체크 · 미선택=전체")
         for depth, path, is_dir, name in rows:
             anc = path.split("/")[:-1]
             if not all("/".join(anc[:i + 1]) in open_set for i in range(len(anc))):
@@ -171,11 +170,10 @@ def _tree_scope(label, key):
                 if c1.button("▼" if path in open_set else "▶", key=f"{key}_tg_{path}"):
                     open_set.symmetric_difference_update({path}); st.rerun()
                 c2.checkbox(f"{indent}📁 {name}", key=_ck(path),
-                            on_change=_on_toggle, args=(path,))
+                            on_change=_on_folder, args=(path,))
             else:
                 c1.write("")
-                c2.checkbox(f"{indent}📄 {name}", key=_ck(path),
-                            on_change=_on_toggle, args=(path,))
+                c2.checkbox(f"{indent}📄 {name}", key=_ck(path))
 
     chosen = sorted(f for f in files if st.session_state.get(_ck(f)))
     if chosen:
@@ -267,7 +265,9 @@ if page == PAGE_CHAT:
     conv = st.session_state["conv"]
     st.subheader(f"💬 대화형 문서 QA — {conv.get('title', '새 대화')}")
     st.caption("후속 질문이 가능합니다(예: '그 명령의 데이터 필드는?'). 대화 전환·초기화는 왼쪽 사이드바.")
-    scope = _tree_scope("📂 문서 범위 (폴더/파일 체크 · 미선택=전체)", "chat_scope")
+    # 대화별 키 → 대화 전환 시 문서 선택이 서로 섞이지 않음
+    scope = _tree_scope("📂 문서 범위 (폴더/파일 체크 · 미선택=전체)",
+                        f"chat_scope_{conv['id']}")
 
     # 🔌 로그 첨부(선택) — 붙이면 이 대화가 로그 분석 모드로 동작
     with st.expander("🔌 로그 첨부 (통신 로그를 대화로 분석)", expanded=bool(conv.get("log"))):
