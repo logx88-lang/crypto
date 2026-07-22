@@ -19,10 +19,21 @@
   <span class="htmx-indicator text-xs text-[#d6006a] ml-2">명세에서 규격 도출 → 파싱 중…</span>
  </form>
 {% else %}
- <form hx-post="/log/upload" hx-target="#logpanel" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="text-sm flex items-center gap-2 flex-wrap">
-  <span class="text-gray-600">통신 로그를 첨부해 대화로 분석:</span>
-  <input type="file" name="logfile" accept=".txt,.log,.dat" class="text-xs">
-  <button class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:border-[#d6006a] hover:text-[#d6006a]">업로드</button>
-  <span class="htmx-indicator text-xs text-[#d6006a]">명세 후보 검색 중…</span>
- </form>
+ <div class="text-sm space-y-3">
+  <form hx-post="/log/paste" hx-target="#logpanel" hx-swap="innerHTML">
+   <div class="text-gray-600 mb-1">통신 로그 내용을 붙여넣어 분석 <span class="text-gray-400">(브라우저 업로드가 막혀 있어도 동작)</span>:</div>
+   <textarea name="logtext" rows="4" placeholder="여기에 로그(HEX 등) 전체를 붙여넣기 (Ctrl+V)" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:border-[#d6006a]"></textarea>
+   <div>
+    <button class="mt-1 text-xs px-3 py-1.5 rounded-lg bg-[#d6006a] text-white hover:bg-[#b80059]">붙여넣은 로그 첨부</button>
+    <span class="htmx-indicator text-xs text-[#d6006a] ml-2">명세 후보 검색 중…</span>
+   </div>
+  </form>
+  <details class="text-xs text-gray-400">
+   <summary class="cursor-pointer">또는 파일 업로드 (보안 정책상 막혀 있을 수 있음)</summary>
+   <form hx-post="/log/upload" hx-target="#logpanel" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="mt-2 flex items-center gap-2">
+    <input type="file" name="logfile" accept=".txt,.log,.dat" class="text-xs">
+    <button class="text-xs px-3 py-1.5 rounded-lg border border-gray-300">업로드</button>
+   </form>
+  </details>
+ </div>
 {% endif %}

@@ -1,7 +1,12 @@
 {% if result %}<div class="mb-4 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">{{ result|safe }}</div>{% endif %}
 
+<div class="mb-4 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 leading-relaxed">
+ 🔒 <b>브라우저 파일 업로드가 막혀 있을 때</b>: 서버의 문서 폴더에 파일을 직접 복사(하위 폴더 가능)한 뒤 아래 <b>‘증분 인덱싱’</b>을 누르세요. 업로드 없이 인덱싱됩니다.<br>
+ 문서 폴더: <code class="bg-white px-1 rounded">{{ cfg.data_dir }}</code>
+</div>
+
 <h3 class="font-medium mb-1">문서 업로드</h3>
-<p class="text-xs text-gray-400 mb-2">지원: {{ exts|join(', ') }} (.doc 는 서버 Word/LibreOffice 필요)</p>
+<p class="text-xs text-gray-400 mb-2">지원: {{ exts|join(', ') }} (.doc 는 서버 Word/LibreOffice 필요) · 업로드가 막혀 있으면 위 안내대로 폴더 복사 + 재인덱싱을 쓰세요.</p>
 <form hx-post="/admin/upload" hx-target="#admin-main" hx-swap="innerHTML" hx-encoding="multipart/form-data"
       class="space-y-2 text-sm border border-gray-200 rounded-xl p-3 mb-6">
  <div class="flex items-center gap-2 flex-wrap">

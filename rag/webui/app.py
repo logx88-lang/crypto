@@ -247,6 +247,13 @@ def _logpanel_html(request, sess, conv):
         conv=conv, plog=sess.get("plog"), basename=os.path.basename)
 
 
+def _prepare_plog(sess, text, name):
+    """로그 텍스트로 명세 후보를 찾아 세션에 보관(파일 업로드/붙여넣기 공용)."""
+    from ..logs.workflow import find_spec_candidates, spec_files
+    cands = find_spec_candidates(get_pipe().retriever, text, "", top_k=15)
+    sess["plog"] = {"text": text, "name": name, "specs": spec_files(cands)}
+
+
 async def log_upload(request):
     sess = _sess(request)
     if not sess:
@@ -258,12 +265,25 @@ async def log_upload(request):
         return HTMLResponse(_logpanel_html(request, sess, conv))
     text = (await up.read()).decode("utf-8", errors="replace")
     try:
-        from ..logs.workflow import find_spec_candidates, spec_files
-        cands = find_spec_candidates(get_pipe().retriever, text, "", top_k=15)
-        specs = spec_files(cands)
+        _prepare_plog(sess, text, up.filename)
     except Exception as e:
         return HTMLResponse(f"<p class='text-red-500 text-sm'>로그 준비 실패: {html.escape(str(e))}</p>")
-    sess["plog"] = {"text": text, "name": up.filename, "specs": specs}
+    return HTMLResponse(_logpanel_html(request, sess, conv))
+
+
+async def log_paste(request):
+    sess = _sess(request)
+    if not sess:
+        return PlainTextResponse("세션 만료", 401)
+    conv = _current_conv(sess)
+    form = await request.form()
+    text = (form.get("logtext") or "").strip()
+    if not text:
+        return HTMLResponse(_logpanel_html(request, sess, conv))
+    try:
+        _prepare_plog(sess, text, "붙여넣은 로그")
+    except Exception as e:
+        return HTMLResponse(f"<p class='text-red-500 text-sm'>로그 준비 실패: {html.escape(str(e))}</p>")
     return HTMLResponse(_logpanel_html(request, sess, conv))
 
 
@@ -469,6 +489,7 @@ app = Starlette(routes=[
     Route("/scope/check", scope_check, methods=["POST"]),
     Route("/scope/fold", scope_fold, methods=["POST"]),
     Route("/log/upload", log_upload, methods=["POST"]),
+    Route("/log/paste", log_paste, methods=["POST"]),
     Route("/log/attach", log_attach, methods=["POST"]),
     Route("/log/detach", log_detach, methods=["POST"]),
     Route("/feedback", fb_page),
