@@ -114,10 +114,10 @@ def _tree_rows(files):
 
 
 def _tree_scope(label, key):
-    """접이식 체크박스 트리로 폴더/파일 선택 → 선택된 파일(rel_path) 목록.
+    """접이식 + 상·하위 동기화 체크박스 트리 → 선택된 파일(rel_path) 목록.
 
-    폴더는 기본 '접힘'(▶). ▶를 눌러야 하위가 보인다(파일 많아도 페이지 안 길어짐).
-    폴더 체크 = 하위 전체 포함. 파일 개별 체크도 가능. 미선택 시 None(=전체)."""
+    폴더 체크=하위 전체 체크(down), 하위 전체 체크 시 상위 자동 체크(up). 기본 접힘(▶).
+    미선택 시 None(=전체)."""
     from rag.index.indexer import list_documents
     files = list_documents()
     if not files:
@@ -125,35 +125,60 @@ def _tree_scope(label, key):
         return None
 
     rows = _tree_rows(files)
+    folders = [p for _, p, is_dir, _ in rows if is_dir]
+    children = {f: [] for f in folders}          # 직속 자식(폴더+파일)
+    for _, pth, _, _ in rows:
+        parent = "/".join(pth.split("/")[:-1])
+        if parent in children:
+            children[parent].append(pth)
+
+    def _ck(pth):
+        return f"{key}::{pth}"
+
+    def _descendants(f):
+        out = []
+        for c in children.get(f, []):
+            out.append(c); out += _descendants(c)
+        return out
+
+    def _on_toggle(pth):
+        v = st.session_state.get(_ck(pth), False)
+        if pth in children:                       # 폴더 → 하위 전체 동기화(down)
+            for d in _descendants(pth):
+                st.session_state[_ck(d)] = v
+        cur = pth                                 # 상위 재조정(up): 직속 자식 모두 체크면 체크
+        while "/" in cur:
+            par = "/".join(cur.split("/")[:-1])
+            if par not in children:
+                break
+            st.session_state[_ck(par)] = all(
+                st.session_state.get(_ck(c), False) for c in children[par])
+            cur = par
+
     open_key = f"{key}__open"
-    open_set = st.session_state.setdefault(open_key, set())   # 기본: 모두 접힘
-    folder_ck, file_ck = {}, {}
+    open_set = st.session_state.setdefault(open_key, set())
     with st.expander(label):
-        st.caption("▶ 눌러 폴더 펼치기 · 📁 폴더 체크=하위 전체 · 📄 파일 개별 체크 · 미선택=전체")
+        st.caption("▶ 펼치기 · 상·하위 체크 동기화(하위 전체 체크 시 상위 체크) · 미선택=전체")
         for depth, path, is_dir, name in rows:
-            anc = path.split("/")[:-1]                        # 조상 폴더가 모두 열려야 표시
+            anc = path.split("/")[:-1]
             if not all("/".join(anc[:i + 1]) in open_set for i in range(len(anc))):
                 continue
-            indent = "  " * depth      # EM SPACE로 계층 들여쓰기
+            indent = " " * depth
             c1, c2 = st.columns([1, 18])
             if is_dir:
-                is_open = path in open_set
-                if c1.button("▼" if is_open else "▶", key=f"{key}_tg_{path}"):
-                    open_set.symmetric_difference_update({path})   # 펼침/접힘 토글
-                    st.rerun()
-                folder_ck[path] = c2.checkbox(f"{indent}📁 {name}", key=f"{key}::{path}")
+                if c1.button("▼" if path in open_set else "▶", key=f"{key}_tg_{path}"):
+                    open_set.symmetric_difference_update({path}); st.rerun()
+                c2.checkbox(f"{indent}📁 {name}", key=_ck(path),
+                            on_change=_on_toggle, args=(path,))
             else:
                 c1.write("")
-                file_ck[path] = c2.checkbox(f"{indent}📄 {name}", key=f"{key}::{path}")
+                c2.checkbox(f"{indent}📄 {name}", key=_ck(path),
+                            on_change=_on_toggle, args=(path,))
 
-    chosen = set()
-    for f in files:
-        if file_ck.get(f) or any(ck and f.startswith(fol + "/")
-                                 for fol, ck in folder_ck.items()):
-            chosen.add(f)
+    chosen = sorted(f for f in files if st.session_state.get(_ck(f)))
     if chosen:
         st.caption(f"선택: {len(chosen)}개 파일")
-    return sorted(chosen) or None
+    return chosen or None
 
 
 st.set_page_config(page_title="사내 지식 RAG", layout="wide")
@@ -221,31 +246,39 @@ with tab_qa:
         with st.expander("🧠 이전 대화 요약(자동 압축)"):
             st.caption(conv["summary"])
 
-    # 히스토리 표시
-    for m in conv.get("messages", []):
+    def _render_excerpt(txt):
+        # 표(마크다운) 청크는 st.markdown 으로 렌더해 가독성↑(이슈4), 그 외는 코드블록
+        if txt.count("|") >= 6 and "---" in txt:
+            st.markdown(txt)
+        else:
+            st.code(txt)
+
+    def _render_sources(srcs, key):
+        if not srcs:
+            return
+        st.caption("출처: " + " · ".join(s["label"] for s in srcs))
+        with st.expander("근거 원문 보기"):     # 턴별 개별 expander → 다음 질문해도 유지(이슈3)
+            for s in srcs:
+                st.markdown(f"**[{s['n']}]** {s['label']}")
+                _render_excerpt(s.get("excerpt", ""))
+
+    # 히스토리 표시(턴별 근거 원문 포함)
+    for _i, m in enumerate(conv.get("messages", [])):
         with st.chat_message("user" if m["role"] == "user" else "assistant"):
             st.write(m["content"])
-            if m.get("sources"):
-                st.caption("출처: " + " · ".join(m["sources"]))
+            _render_sources(m.get("sources"), key=f"src_{_i}")
 
-    # 입력 → 멀티턴 응답
+    # 입력 → 생성 → rerun(입력창 재생성·히스토리 갱신: 이슈2)
     if _q := st.chat_input("질문을 입력하세요 (후속 질문 가능)"):
-        with st.chat_message("user"):
-            st.write(_q)
-        with st.chat_message("assistant"):
-            try:
-                with st.spinner("검색·리랭킹·생성 중…"):
-                    _r = chatmod.answer(get_pipeline(), conv, _q, scope_files=scope)
-                _a = (_r.get("answer") or "").strip()
-                st.write(_a or "제공된 문서에서 근거를 찾지 못했습니다.")
-                if _r["sources"]:
-                    st.caption("출처: " + " · ".join(s["label"] for s in _r["sources"]))
-                    with st.expander("근거 원문 보기"):
-                        for s, c in zip(_r["sources"], _r["contexts"]):
-                            st.markdown(f"**[{s['n']}]** {s['label']}")
-                            st.code(c["document"][:1500])
-            except Exception as e:
-                st.error(f"오류: {e}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
+        try:
+            with st.spinner("검색·리랭킹·생성 중…"):
+                chatmod.answer(get_pipeline(), conv, _q, scope_files=scope)
+        except Exception as e:
+            st.session_state["chat_err"] = str(e)
+        st.rerun()
+    _err = st.session_state.pop("chat_err", None)
+    if _err:
+        st.error(f"오류: {_err}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
 
 
 # ===========================================================================

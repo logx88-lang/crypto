@@ -93,9 +93,11 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
         text = pipeline.llm.chat(messages)
 
     srcs = sources_list(top)
+    # 근거 원문 발췌를 메시지에 함께 저장 → 턴별로 근거를 펼쳐볼 수 있게(질문 후에도 유지).
+    src_full = [{"n": s["n"], "label": s["label"],
+                 "excerpt": c.get("document", "")[:1800]} for s, c in zip(srcs, top)]
     conv["messages"].append({"role": "user", "content": question})
-    conv["messages"].append({"role": "assistant", "content": text,
-                             "sources": [s["label"] for s in srcs]})
+    conv["messages"].append({"role": "assistant", "content": text, "sources": src_full})
     if conv.get("title", "새 대화") in ("새 대화", "") and len([m for m in conv["messages"]
                                                           if m["role"] == "user"]) == 1:
         conv["title"] = question[:30]      # 첫 질문을 대화 제목으로
