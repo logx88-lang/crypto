@@ -47,5 +47,5 @@ Write-Host ""
 
 # 4) uvicorn 구동 (venv 우선)
 $venvPy = Join-Path $Root ".venv\Scripts\python.exe"
-$py = (Test-Path $venvPy) ? $venvPy : "python"
+if (Test-Path $venvPy) { $py = $venvPy } else { $py = "python" }   # PS5.1 호환(삼항 ?: 미지원)
 & $py -m uvicorn rag.webui.app:app --host 0.0.0.0 --port $Port
