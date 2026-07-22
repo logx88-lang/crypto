@@ -181,13 +181,21 @@ def _tree_scope(label, key):
     return chosen or None
 
 
-st.set_page_config(page_title="사내 지식 RAG", layout="wide")
+LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.png")
+st.set_page_config(page_title="사내 지식 QnA",
+                   page_icon=LOGO if os.path.exists(LOGO) else None, layout="wide")
+try:
+    st.logo(LOGO, size="large")     # 창 왼쪽 위 구석 로고(에이텍모빌리티)
+except Exception:
+    pass
 
 from rag import chat as chatmod
 
 # --- 로그인 게이트(이름별 대화 분리용 간이 로그인) ---
 if not st.session_state.get("user"):
-    st.title("사내 지식 공유 · 통신로그 분석 플랫폼")
+    if os.path.exists(LOGO):
+        st.image(LOGO, width=300)
+    st.title("사내 지식 QnA")
     st.subheader("로그인")
     st.caption("사내 전용 간이 로그인 — 이름별로 대화를 분리합니다(처음 쓰는 이름은 자동 등록).")
     with st.form("login"):
@@ -208,27 +216,31 @@ if "conv" not in st.session_state:
     st.session_state["conv"] = (chatmod.load_conversation(USER, _cvs[0]["id"])
                                 if _cvs else chatmod.new_conversation(USER))
 
-# --- 사이드바: 대화 관리(여러 대화창 전환/삭제/새로) ---
+PAGE_CHAT, PAGE_FB, PAGE_ADMIN = "💬 대화", "🚩 개선 기록", "⚙️ 관리"
+
+# --- 사이드바: 제목 + 메뉴(탭) + 대화 관리(대화 페이지에서만) ---
 with st.sidebar:
-    st.markdown(f"**👤 {USER}**")
+    st.markdown("### 사내 지식 QnA")
+    st.caption(f"👤 {USER}")
+    page = st.radio("메뉴", [PAGE_CHAT, PAGE_FB, PAGE_ADMIN], key="nav",
+                    label_visibility="collapsed")
+    st.divider()
+    if page == PAGE_CHAT:
+        if st.button("➕ 새 대화", use_container_width=True):
+            st.session_state["conv"] = chatmod.new_conversation(USER); st.rerun()
+        st.caption("대화 목록")
+        for _cv in chatmod.list_conversations(USER):
+            _cur = _cv["id"] == st.session_state["conv"]["id"]
+            if st.button(("● " if _cur else "") + (_cv["title"] or "대화")[:24],
+                         key=f"cv_{_cv['id']}", use_container_width=True):
+                st.session_state["conv"] = chatmod.load_conversation(USER, _cv["id"]); st.rerun()
+        if st.button("🗑 현재 대화 삭제", use_container_width=True):
+            chatmod.delete_conversation(USER, st.session_state["conv"]["id"])
+            st.session_state.pop("conv", None); st.rerun()
+        st.divider()
     if st.button("로그아웃", use_container_width=True):
         st.session_state.pop("user", None); st.session_state.pop("conv", None)
         st.rerun()
-    st.divider()
-    if st.button("➕ 새 대화", use_container_width=True):
-        st.session_state["conv"] = chatmod.new_conversation(USER); st.rerun()
-    st.caption("대화 목록")
-    for _cv in chatmod.list_conversations(USER):
-        _cur = _cv["id"] == st.session_state["conv"]["id"]
-        if st.button(("● " if _cur else "") + (_cv["title"] or "대화")[:24],
-                     key=f"cv_{_cv['id']}", use_container_width=True):
-            st.session_state["conv"] = chatmod.load_conversation(USER, _cv["id"]); st.rerun()
-    st.divider()
-    if st.button("🗑 현재 대화 삭제", use_container_width=True):
-        chatmod.delete_conversation(USER, st.session_state["conv"]["id"])
-        st.session_state.pop("conv", None); st.rerun()
-
-st.title("사내 지식 공유 · 통신로그 분석 플랫폼")
 
 
 @st.dialog("📄 원본 미리보기", width="large")
@@ -240,14 +252,10 @@ def _open_preview(rel_path, loc, excerpt):
             st.code(excerpt)
 
 
-tab_qa, tab_log, tab_fb, tab_admin = st.tabs(
-    ["💬 대화", "🔌 로그 분석", "🚩 개선 기록", "⚙️ 관리"])
-
-
 # ===========================================================================
-# 문서 QA
+# 💬 대화 (대화형 문서 QA + 로그 첨부 분석)
 # ===========================================================================
-with tab_qa:
+if page == PAGE_CHAT:
     conv = st.session_state["conv"]
     st.subheader(f"💬 대화형 문서 QA — {conv.get('title', '새 대화')}")
     st.caption("후속 질문이 가능합니다(예: '그 명령의 데이터 필드는?'). 대화 전환·초기화는 왼쪽 사이드바.")
@@ -327,109 +335,12 @@ with tab_qa:
         st.error(f"오류: {_err}\nOllama(`ollama serve`)와 인덱스(관리 탭)를 확인하세요.")
 
 
-# ===========================================================================
-# 로그 분석
-# ===========================================================================
-with tab_log:
-    st.subheader("통신 로그 분석")
-    st.caption("HEX/자연어 로그 업로드 → 프로토콜 명세 선택 → **선택 문서에서 프레임 규격을 자동 도출**해 "
-               "파싱 → 해석. 모듈마다 형식이 달라도 해당 명세만 있으면 됩니다(하드코딩 없음).")
-    up = st.file_uploader("로그 파일 (.txt/.dat/.log)", type=["txt", "dat", "log"],
-                          key="log_up")
-    log_q = st.text_input("질문(선택)", key="log_q",
-                          placeholder="예: LSAM 정보 요청 커맨드가 발생한 시각을 알려줘")
-
-    if up is not None:
-        raw = up.read()
-        is_binary = up.name.lower().endswith(".dat")
-        from rag.logs.detect import detect_log_type
-        from rag.logs.workflow import (find_spec_candidates,
-                                        summarize_analysis, explain)
-
-        text = None if is_binary else raw.decode("utf-8", errors="replace")
-        ltype = "hex(binary)" if is_binary else detect_log_type(text)
-        st.info(f"감지된 로그 종류: **{ltype}**")
-
-        # 원문 미리보기만 표시(파싱은 명세 확정 후 1회만).
-        with st.expander("📄 로그 미리보기 (원문 앞부분)"):
-            _prev = (text or "").splitlines()[:20]
-            st.code("\n".join(_prev) if _prev else "(바이너리 로그 — 미리보기 생략)")
-
-        # --- 프로토콜 명세 '파일' 선택 (이슈4: 청크 아닌 파일 단위) ---
-        st.markdown("#### 프로토콜 명세 선택 (필수)")
-        st.caption("이 로그에 해당하는 프로토콜 **문서(파일)**를 고르세요. 선택 문서에서 프레임 규격·필드표를 찾아 파싱·해석합니다.")
-        from rag.logs.workflow import (spec_files, gather_file_chunks,
-                                       resolve_command_names, _observed_cmd_keys)
-        try:
-            retriever, llm = get_retriever_llm()
-            cands = find_spec_candidates(retriever, text or "", log_q, top_k=15)
-        except Exception as e:
-            cands, llm = [], None
-            st.error(f"명세 후보 검색 실패: {e}")
-
-        files_opt = spec_files(cands)
-        if files_opt:
-            chosen_files = st.multiselect(
-                "프로토콜 명세 파일", options=files_opt,
-                format_func=lambda f: os.path.basename(str(f)), key="log_spec_files")
-            if st.button("확정 명세로 파싱·해석", key="log_explain") and chosen_files and text is not None:
-                try:
-                    with st.spinner("명세에서 프레임 규격 도출 → 파싱 → 필드 해석 중…"):
-                        from rag.logs.generic import analyze_by_spec
-                        # 1) 프레임 구조 청크로 파싱
-                        derive_chunks = gather_file_chunks(
-                            retriever, chosen_files,
-                            "전문 포맷 프레임 구조 packet format Command Length Data 체크섬 요청전문 응답전문",
-                            top_k=10)
-                        spec_text = "\n\n".join(c.get("document", "") for c in derive_chunks)
-                        parsed = analyze_by_spec(text, spec_text, llm)
-                        st.session_state["log_profile"] = (
-                            parsed.get("profile") if parsed.get("derived") else None)
-                        # 2) 관측 명령 기반 필드표·해석 청크 수집(선택 파일 범위)
-                        obs = " ".join(("0x" + k[2:] if k.startswith("0X") else k)
-                                       for k in sorted(_observed_cmd_keys(parsed)))
-                        explain_chunks = gather_file_chunks(
-                            retriever, chosen_files,
-                            f"{log_q} {obs} 요청전문 응답전문 전문 포맷 필드 TYPE LEN 비고 DATA",
-                            top_k=16)
-                        _where = {"source_file": {"$in": chosen_files}}
-                        _names = resolve_command_names(retriever, parsed, where=_where)
-                        st.session_state["log_cmd_names"] = _names
-                        st.session_state["log_parsed"] = parsed
-                        st.session_state["log_chosen"] = explain_chunks
-                        st.session_state["log_out"] = explain(
-                            llm, log_q, parsed, explain_chunks, cmd_names=_names)
-                except Exception as e:
-                    st.error(f"해석 실패: {e}")
-            elif not chosen_files:
-                st.caption("⚠️ 명세 파일을 1개 이상 선택해야 해석할 수 있습니다(자동 추측 금지).")
-        else:
-            st.caption("명세 후보가 없습니다. 관리 탭에서 프로토콜 명세 문서를 먼저 인덱싱하세요.")
-
-        # --- 결과: 파싱 결과 1개 + 규격 + 해석 ---
-        prof = st.session_state.get("log_profile")
-        parsed = st.session_state.get("log_parsed")
-        if parsed:
-            _cmd_names = st.session_state.get("log_cmd_names") or {}
-            st.markdown("#### 파싱 결과")
-            st.code(summarize_analysis(parsed, cmd_names=_cmd_names))
-        if prof:
-            with st.expander("📐 명세에서 도출한 파싱 규격 (자동)"):
-                st.json(prof)
-        if st.session_state.get("log_out"):
-            st.markdown("#### 해석")
-            st.write(st.session_state["log_out"])
-
-        feedback_form("log", {"question": log_q or "(로그 분석)",
-                              "answer": st.session_state.get("log_out", ""),
-                              "contexts": st.session_state.get("log_chosen", [])},
-                      key="fb_log")
 
 
 # ===========================================================================
-# 개선 기록 (비식별 반출)
+# 🚩 개선 기록 (비식별 반출)
 # ===========================================================================
-with tab_fb:
+elif page == PAGE_FB:
     st.subheader("개선 기록 — 비식별화 반출")
     st.caption("QA/로그 결과 아래 '🚩 개선 기록'에서 남긴 내용입니다. 기본은 원문 저장이며, "
                "저장 시 '🔒 비식별화'를 체크하면 값·명칭이 가명으로 치환됩니다. 반출 전 내용을 확인하세요.")
@@ -465,9 +376,9 @@ with tab_fb:
 
 
 # ===========================================================================
-# 관리 (인덱싱)
+# ⚙️ 관리 (인덱싱)
 # ===========================================================================
-with tab_admin:
+elif page == PAGE_ADMIN:
     st.subheader("인덱스 관리")
     from rag.ingest import SUPPORTED_EXTS
     _EXTS = ["xlsx", "docx", "doc", "pptx", "pdf", "txt", "png", "jpg", "jpeg", "bmp", "tiff", "tif"]
