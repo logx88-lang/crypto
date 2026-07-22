@@ -50,49 +50,51 @@ def _now():
     return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
 
 
-def feedback_form(kind: str, prefill: dict, key: str):
-    """개선기록 캡처 폼 — 저장 전 비식별화 미리보기 제공."""
-    with st.expander("🚩 개선 기록"):
-        cat = st.selectbox("유형", CATS[kind], key=f"{key}_cat")
-        sev = st.radio("심각도", ["낮음", "중간", "높음"], index=1, horizontal=True,
-                       key=f"{key}_sev")
-        note = st.text_area("증상/메모 — 무엇이 잘못됐는지 구체적으로 적어주세요.",
-                            key=f"{key}_note")
+def feedback_form(kind: str, prefill: dict, key: str) -> bool:
+    """개선기록 캡처 필드(다이얼로그/인라인 공용) — 저장 시 True 반환."""
+    st.caption(f"질문: {prefill.get('question','')[:120]}")
+    cat = st.selectbox("유형", CATS[kind], key=f"{key}_cat")
+    sev = st.radio("심각도", ["낮음", "중간", "높음"], index=1, horizontal=True,
+                   key=f"{key}_sev")
+    note = st.text_area("증상/메모 — 무엇이 잘못됐는지 구체적으로 적어주세요.",
+                        key=f"{key}_note")
 
-        # 이미지 첨부: 클립보드 붙여넣기(컴포넌트 있으면) 또는 파일 업로드
-        img_key = f"{key}_imgbytes"
-        try:
-            from streamlit_paste_button import paste_image_button as _paste
-            pasted = _paste("📋 클립보드 이미지 붙여넣기", key=f"{key}_paste")
-            if pasted is not None and getattr(pasted, "image_data", None) is not None:
-                import io
-                _buf = io.BytesIO(); pasted.image_data.save(_buf, format="PNG")
-                st.session_state[img_key] = _buf.getvalue()
-        except Exception:
-            st.caption("클립보드 붙여넣기 미지원 — 아래 파일 업로드를 이용하세요.")
-        up_img = st.file_uploader("또는 이미지 파일 첨부", type=["png", "jpg", "jpeg", "bmp"],
-                                  key=f"{key}_img")
-        if up_img is not None:
-            st.session_state[img_key] = up_img.getvalue()
-        img_bytes = st.session_state.get(img_key)
-        if img_bytes:
-            st.image(img_bytes, width=280, caption="첨부 이미지")
-            if st.button("이미지 제거", key=f"{key}_imgclr"):
-                st.session_state.pop(img_key, None); img_bytes = None
+    # 이미지 첨부: 클립보드 붙여넣기(컴포넌트 있으면) 또는 파일 업로드
+    img_key = f"{key}_imgbytes"
+    try:
+        from streamlit_paste_button import paste_image_button as _paste
+        pasted = _paste("📋 클립보드 이미지 붙여넣기", key=f"{key}_paste")
+        if pasted is not None and getattr(pasted, "image_data", None) is not None:
+            import io
+            _buf = io.BytesIO(); pasted.image_data.save(_buf, format="PNG")
+            st.session_state[img_key] = _buf.getvalue()
+    except Exception:
+        st.caption("클립보드 붙여넣기 미지원 — 아래 파일 업로드를 이용하세요.")
+    up_img = st.file_uploader("또는 이미지 파일 첨부", type=["png", "jpg", "jpeg", "bmp"],
+                              key=f"{key}_img")
+    if up_img is not None:
+        st.session_state[img_key] = up_img.getvalue()
+    img_bytes = st.session_state.get(img_key)
+    if img_bytes:
+        st.image(img_bytes, width=280, caption="첨부 이미지")
+        if st.button("이미지 제거", key=f"{key}_imgclr"):
+            st.session_state.pop(img_key, None); img_bytes = None
 
-        redact = st.checkbox("🔒 비식별화(외부 반출 시 민감하면 체크)", value=False,
-                             key=f"{key}_redact")
-        record = {"ts": _now(), "kind": kind, "category": cat, "severity": sev,
-                  "question": prefill.get("question", ""),
-                  "answer": prefill.get("answer", ""),
-                  "note": note, "contexts": prefill.get("contexts", [])}
-        rec = sanitize_record(record) if redact else readable_record(record)
-        if st.checkbox("🔍 저장될 내용 미리보기", key=f"{key}_pv"):
-            st.json(rec)
-        if st.button("개선 기록 저장", key=f"{key}_save"):
-            FeedbackLog().add(rec, already_sanitized=True, image_bytes=img_bytes)
-            st.session_state.pop(img_key, None)
-            st.success(("비식별화되어 " if redact else "") + "저장되었습니다. '개선 기록' 탭에서 반출하세요.")
+    redact = st.checkbox("🔒 비식별화(외부 반출 시 민감하면 체크)", value=False,
+                         key=f"{key}_redact")
+    record = {"ts": _now(), "kind": kind, "category": cat, "severity": sev,
+              "question": prefill.get("question", ""),
+              "answer": prefill.get("answer", ""),
+              "note": note, "contexts": prefill.get("contexts", [])}
+    rec = sanitize_record(record) if redact else readable_record(record)
+    if st.checkbox("🔍 저장될 내용 미리보기", key=f"{key}_pv"):
+        st.json(rec)
+    if st.button("개선 기록 저장", key=f"{key}_save", type="primary"):
+        FeedbackLog().add(rec, already_sanitized=True, image_bytes=img_bytes)
+        st.session_state.pop(img_key, None)
+        st.success(("비식별화되어 " if redact else "") + "저장되었습니다. '개선 기록' 메뉴에서 반출하세요.")
+        return True
+    return False
 
 
 def _folder_set(files):
@@ -252,6 +254,12 @@ def _open_preview(rel_path, loc, excerpt):
             st.code(excerpt)
 
 
+@st.dialog("🚩 개선 기록")
+def _open_feedback(prefill):
+    if feedback_form("qa", prefill, "fbdlg"):
+        st.rerun()      # 저장 후 다이얼로그 닫기
+
+
 # ===========================================================================
 # 💬 대화 (대화형 문서 QA + 로그 첨부 분석)
 # ===========================================================================
@@ -316,11 +324,17 @@ if page == PAGE_CHAT:
                     _open_preview(s["rel_path"], s.get("loc"), s.get("excerpt", ""))
                 _render_excerpt(s.get("excerpt", ""))
 
-    # 히스토리 표시(턴별 근거 원문 포함)
-    for _i, m in enumerate(conv.get("messages", [])):
+    # 히스토리 표시(턴별 근거 원문 + 개선 기록 버튼)
+    _msgs = conv.get("messages", [])
+    for _i, m in enumerate(_msgs):
         with st.chat_message("user" if m["role"] == "user" else "assistant"):
             st.write(m["content"])
             _render_sources(m.get("sources"), key=f"src_{_i}")
+            if m["role"] == "assistant":
+                _prevq = _msgs[_i - 1]["content"] if _i > 0 and _msgs[_i - 1]["role"] == "user" else ""
+                if st.button("🚩 개선 기록", key=f"fbbtn_{_i}",
+                             help="이 답변에 문제가 있으면 기록(반출용, 비식별화 가능)"):
+                    _open_feedback({"question": _prevq, "answer": m["content"], "contexts": []})
 
     # 입력 → 생성 → rerun(입력창 재생성·히스토리 갱신: 이슈2)
     if _q := st.chat_input("질문을 입력하세요 (후속 질문 가능)"):
