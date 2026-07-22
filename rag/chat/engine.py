@@ -93,9 +93,16 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
         text = pipeline.llm.chat(messages)
 
     srcs = sources_list(top)
-    # 근거 원문 발췌를 메시지에 함께 저장 → 턴별로 근거를 펼쳐볼 수 있게(질문 후에도 유지).
-    src_full = [{"n": s["n"], "label": s["label"],
-                 "excerpt": c.get("document", "")[:1800]} for s, c in zip(srcs, top)]
+    # 근거 원문 발췌 + 파일경로·위치를 메시지에 저장 → 턴별 펼쳐보기 + 원본 파일 미리보기.
+    src_full = []
+    for s, c in zip(srcs, top):
+        m = c.get("metadata", {})
+        src_full.append({
+            "n": s["n"], "label": s["label"], "excerpt": c.get("document", "")[:1800],
+            "rel_path": m.get("rel_path"),
+            "loc": {k: m.get(k) for k in ("page_no", "sheet_name", "slide_no", "section")
+                    if m.get(k)},
+        })
     conv["messages"].append({"role": "user", "content": question})
     conv["messages"].append({"role": "assistant", "content": text, "sources": src_full})
     if conv.get("title", "새 대화") in ("새 대화", "") and len([m for m in conv["messages"]

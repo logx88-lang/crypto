@@ -230,6 +230,16 @@ with st.sidebar:
 
 st.title("사내 지식 공유 · 통신로그 분석 플랫폼")
 
+
+@st.dialog("📄 원본 미리보기", width="large")
+def _open_preview(rel_path, loc, excerpt):
+    from rag.app.preview import render_file
+    render_file(rel_path, loc)
+    if excerpt:
+        with st.expander("이 답변이 참고한 근거 발췌(청크)"):
+            st.code(excerpt)
+
+
 tab_qa, tab_log, tab_fb, tab_admin = st.tabs(
     ["💬 대화", "🔌 로그 분석", "🚩 개선 기록", "⚙️ 관리"])
 
@@ -259,7 +269,10 @@ with tab_qa:
         st.caption("출처: " + " · ".join(s["label"] for s in srcs))
         with st.expander("근거 원문 보기"):     # 턴별 개별 expander → 다음 질문해도 유지(이슈3)
             for s in srcs:
-                st.markdown(f"**[{s['n']}]** {s['label']}")
+                _c1, _c2 = st.columns([5, 1])
+                _c1.markdown(f"**[{s['n']}]** {s['label']}")
+                if s.get("rel_path") and _c2.button("📄 원본", key=f"{key}_pv_{s['n']}"):
+                    _open_preview(s["rel_path"], s.get("loc"), s.get("excerpt", ""))
                 _render_excerpt(s.get("excerpt", ""))
 
     # 히스토리 표시(턴별 근거 원문 포함)
