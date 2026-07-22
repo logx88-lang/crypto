@@ -38,11 +38,14 @@ $vpy = ".\.venv\Scripts\python.exe"
 if ($LASTEXITCODE -ne 0) { throw "오프라인 설치 실패 — wheelhouse 누락 wheel 확인" }
 
 # --- import 스모크 (Ollama 불필요) ---
-& $vpy -c "import openpyxl, docx, pptx, pdfplumber, charset_normalizer, chromadb, kiwipiepy, bm25s, ollama, streamlit, torch, sentence_transformers, transformers; print('import OK')"
+& $vpy -c "import openpyxl, docx, pptx, pdfplumber, charset_normalizer, chromadb, kiwipiepy, bm25s, ollama, streamlit, torch, sentence_transformers, transformers; print('import OK (core)')"
+# 신규 웹 UI(rag/webui, 8502) 의존성도 검증 — 누락 시 여기서 실패
+& $vpy -c "import starlette, uvicorn, jinja2, multipart; print('import OK (web ui)')"
 
 Write-Host ""
 Write-Host "설치 완료. 다음 단계:"
 Write-Host "  1) Ollama 모델 반입 확인:  ollama list  (bge-m3=1024d, qwen3 계열)"
 Write-Host "  2) 리랭커 가중치 경로 지정:  set RAG_RERANKER=C:\models\bge-reranker-v2-m3"
 Write-Host "  3) E2E 점검:  .\.venv\Scripts\python smoke_test.py"
-Write-Host "  4) 서버 기동:  .\.venv\Scripts\streamlit run rag\app\main.py --server.address 0.0.0.0 --server.port 8501"
+Write-Host "  4) 서버 기동(신규 웹 UI):  .\packaging\start_webui.ps1        # http://<IP>:8502"
+Write-Host "     (폴백/기존 Streamlit):  .\packaging\start_server.ps1       # http://<IP>:8501"
