@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block body %}
+<div class="flex h-screen">
+ {% include "_sidebar.html" %}
+ <main class="flex-1 flex flex-col min-w-0">
+  <header class="px-6 py-3 border-b border-gray-100 flex items-center gap-3">
+   <span class="font-semibold truncate flex-1">{{ conv.title or '새 대화' }}</span>
+   <button onclick="togglePanel('scopepanel')" class="text-xs px-2.5 py-1 rounded-lg border border-gray-200 hover:border-[#d6006a] hover:text-[#d6006a]">📂 문서 범위</button>
+   <button onclick="togglePanel('logpanel')" class="text-xs px-2.5 py-1 rounded-lg border border-gray-200 hover:border-[#d6006a] hover:text-[#d6006a]">🔌 로그 첨부{% if conv.log %} ●{% endif %}</button>
+  </header>
+
+  <div id="scopepanel" class="hidden border-b border-gray-100 bg-gray-50/60 px-6 py-3">
+   <div class="text-xs text-gray-400 mb-1">폴더 체크=하위 전체 · 하위 전체 체크 시 상위 자동 체크 · 미선택=전체</div>
+   <div id="scopetree" class="max-h-56 overflow-y-auto pr-2">{{ scope_html|safe }}</div>
+  </div>
+
+  <div id="logpanel" class="{% if not conv.log %}hidden {% endif %}border-b border-gray-100 bg-gray-50/60 px-6 py-3">
+   {% include "_logpanel.html" %}
+  </div>
+
+  <div id="messages" class="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-gray-50/30">{{ messages_html|safe }}</div>
+  <div id="pasted" class="px-6"></div>
+  <div class="px-6 pb-5">
+   <form id="chatform" hx-post="/chat" hx-target="#messages" hx-swap="beforeend" hx-on::after-request="afterSend()">
+    <div class="border border-gray-300 rounded-2xl px-3 py-2 flex items-end gap-2 shadow-sm focus-within:border-[#d6006a]">
+     <textarea id="msgbox" name="message" rows="1" placeholder="질문을 입력하세요 (후속 질문 가능 · 이미지는 Ctrl+V)" class="flex-1 resize-none outline-none text-sm py-1.5 bg-transparent max-h-40"></textarea>
+     <div class="htmx-indicator items-center text-[#d6006a] text-xs pb-2">생성 중…</div>
+     <button class="bg-[#d6006a] text-white rounded-xl w-9 h-9 flex items-center justify-center hover:bg-[#b80059] shrink-0">↑</button>
+    </div>
+   </form>
+   <div class="text-center text-xs text-gray-300 mt-1.5">이미지 붙여넣기(Ctrl+V)·답변 복사는 HTTP에서도 동작</div>
+  </div>
+ </main>
+</div>
+{% include "_modal.html" %}{% endblock %}

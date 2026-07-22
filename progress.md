@@ -361,3 +361,31 @@
 1. 사용자에게 `docs/open_questions.md` 답변 요청.
 2. 답변 반영 후 **더미 샘플 세트 생성 → 검토 게이트**(사용자 승인).
 3. 승인 시 MVP(텍스트+표 QA) 구현 착수.
+
+## 2026-07-22 — 웹 UI(Starlette+HTMX) 신설: Streamlit 대체 착수
+
+### 배경 / 결정
+- 사용자 피드백: Streamlit UI가 "별로 안이뻐" → 깔끔한 대안 요청. 목업 비교 후 **Starlette+HTMX+Tailwind**
+  채택. 사용자 결정: **신규 UI로 전환**(나머지 기능 이식 후 Streamlit 폐기 예정, 그전까지 폴백 유지).
+- 같은 백엔드(rag.chat/engine·logchat, rag.index, rag.feedback)를 **그대로 재사용**. 화면 계층만 신규.
+  포트 8502(Streamlit 8501과 병행). 정적자산(htmx.min.js·tailwind.js) 저장소 동봉 → CDN/인터넷 불필요(폐쇄망 OK).
+- 복사=execCommand 폴백, 이미지 붙여넣기=paste 이벤트 → **HTTPS 불필요, HTTP에서 동작** 확인.
+
+### 산출물 (rag/webui/)
+- `app.py` — Starlette 라우트: 로그인/대화전환, `/chat`(멀티턴 RAG, 스코프 반영), `/scope/*`(문서범위 트리),
+  `/log/*`(로그 첨부·파싱·분리), `/feedback/*`(개선기록 폼·저장·목록·MD반출·이미지), `/admin/*`(업로드·재인덱싱), `/preview`.
+- `scopetree.py` — 폴더/파일 체크박스 트리(HTMX). 선택의 진짜 상태=파일집합, 폴더체크는 렌더시 재계산(하위전체 동기화).
+- `htmlpreview.py` — 근거 원본 미리보기 HTML(xlsx 시트탭/pdf 페이지이미지/docx·pptx/txt).
+- `templates/`(base·_sidebar·chat·login·_user_msg·_assistant_msg·_logpanel·_fbform·feedback·admin·_admin_main·_modal),
+  `static/`(htmx.min.js 50KB·tailwind.js 451KB·logo.png·app.js).
+- `packaging/start_webui.ps1` — 서버A 실행 스크립트(8502, Streamlit과 병행). requirements(.in/.txt)에 순수 wheel 4종 추가.
+
+### 검증 (Playwright + TestClient)
+- 로그인→사이드바(로고·3메뉴·대화목록)→ChatGPT풍 말풍선, 인라인 `[N]` 인용 클릭→미리보기 모달(PDF 페이지 이미지).
+- 스코프 트리 폴더 동기화: 폴더체크→하위 4개 선택(체크 5), 파일1 해제→폴더 해제·"선택 3개". 정상.
+- 개선기록 모달 저장→개선기록 페이지 반영, 관리 업로드폼/폴더선택/문서목록/재인덱싱 라우트 정상.
+- 실 LLM 답변 경로는 Streamlit과 동일 engine.answer 재사용(가짜 파이프라인으로 배선 확정; CPU라 느릴 뿐).
+
+### 다음 액션
+- 서버 A(배포)에서 8502 실측 후 Streamlit(rag/app) 최종 폐기 여부 확정. 그 전까지 두 UI 병행.
+- 오프라인 wheelhouse 빌드 시 starlette/uvicorn/python-multipart win_amd64 wheel 포함 확인(전부 순수 파이썬).

@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% block body %}
+<div class="flex h-screen">
+ {% include "_sidebar.html" %}
+ <main class="flex-1 flex flex-col min-w-0 overflow-y-auto">
+  <header class="px-6 py-3 border-b border-gray-100 font-semibold">🚩 개선 기록 — 비식별화 반출</header>
+  <div class="px-6 py-5 max-w-3xl">
+   <p class="text-xs text-gray-500 mb-3">대화 답변 아래 ‘🚩 개선 기록’으로 남긴 내용입니다. 기본은 원문 저장이며, 저장 시 ‘🔒 비식별화’를 체크하면 값·명칭이 가명으로 치환됩니다. 반출 전 내용을 확인하세요.</p>
+   <div class="flex items-center gap-3 mb-4">
+    <span class="text-sm">기록 건수: <b>{{ total }}</b></span>
+    {% if total %}<a href="/feedback/export" class="text-xs px-3 py-1.5 rounded-lg bg-[#d6006a] text-white hover:bg-[#b80059]">📤 Markdown 내보내기(USB 반출용)</a>{% endif %}
+   </div>
+   {% if records %}
+   <div class="space-y-3">
+    {% for r in records %}
+    <div class="border border-gray-200 rounded-xl p-3 text-sm">
+     <div class="font-medium">{{ r.category or '' }} · {{ r.severity or '' }} · [{{ r.kind }}] <span class="text-xs text-gray-400 font-normal">{{ r.ts or '' }}</span></div>
+     {% if r.question %}<div class="text-xs text-gray-500 mt-1">질문: {{ r.question[:160] }}</div>{% endif %}
+     {% if r.note %}<div class="text-xs text-gray-500">메모: {{ r.note[:160] }}</div>{% endif %}
+     {% if r.context_summary %}<div class="text-xs text-gray-400">검색 근거: 총 {{ r.context_summary.n or 0 }}개 (표 {{ r.context_summary.table or 0 }} / 텍스트 {{ r.context_summary.text or 0 }})</div>{% endif %}
+     {% if r.image and exists(feedback_dir + '/' + r.image) %}<img src="/feedback/image?f={{ r.image }}" class="mt-2 max-w-xs rounded border border-gray-200">{% endif %}
+    </div>
+    {% endfor %}
+   </div>
+   {% else %}
+   <div class="text-sm text-gray-400 bg-gray-50 rounded-xl p-6 text-center">아직 기록이 없습니다. ‘대화’에서 답변 아래 ‘🚩 개선 기록’으로 남기세요.</div>
+   {% endif %}
+  </div>
+ </main>
+</div>
+{% include "_modal.html" %}{% endblock %}

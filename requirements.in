@@ -5,6 +5,13 @@
 # 아직 애플리케이션 코드가 없으므로 이 파일은 후보 목록이며 확정 매니페스트가 아니다.
 
 # --- UI ---
+# 신규 웹 UI(rag/webui, 0.0.0.0:8502) — Starlette+HTMX. 전부 순수 파이썬 wheel(오프라인 OK).
+#   정적 자산(htmx.min.js·tailwind.js)은 저장소 동봉 → CDN/인터넷 불필요.
+starlette            # ASGI 웹 프레임워크(경량, 순수 wheel)
+uvicorn              # ASGI 서버(순수 wheel; h11 동반)
+jinja2               # 템플릿(순수 wheel)
+python-multipart     # 폼/파일 업로드 파싱(순수 wheel)
+# 아래 Streamlit UI(0.0.0.0:8501)는 웹 UI 안정화 전까지 폴백으로 유지. 전환 후 제거 예정.
 streamlit            # 단일 호스트 다중 사용자 웹 UI (0.0.0.0:8501)
 streamlit-paste-button  # 개선기록 클립보드 이미지 붙여넣기(순수 wheel)
 

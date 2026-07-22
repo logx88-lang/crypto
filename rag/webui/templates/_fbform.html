@@ -1,0 +1,37 @@
+<h2 class="font-semibold mb-3">🚩 개선 기록</h2>
+<form id="fbform" hx-post="/feedback/save" hx-target="#modal-body" hx-swap="innerHTML"
+      hx-encoding="multipart/form-data" class="space-y-3 text-sm">
+ <input type="hidden" name="question" value="{{ question }}">
+ <input type="hidden" name="answer" value="{{ answer }}">
+ <div class="text-xs text-gray-500 bg-gray-50 rounded p-2">질문: {{ question[:120] }}</div>
+ <div>
+  <label class="block text-xs text-gray-500 mb-1">유형</label>
+  <select name="category" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 outline-none focus:border-[#d6006a]">
+   {% for c in cats %}<option>{{ c }}</option>{% endfor %}
+  </select>
+ </div>
+ <div>
+  <label class="block text-xs text-gray-500 mb-1">심각도</label>
+  <div class="flex gap-4">
+   {% for s in ['낮음','중간','높음'] %}
+   <label class="flex items-center gap-1"><input type="radio" name="severity" value="{{ s }}" {% if s=='중간' %}checked{% endif %} class="accent-[#d6006a]">{{ s }}</label>
+   {% endfor %}
+  </div>
+ </div>
+ <div>
+  <label class="block text-xs text-gray-500 mb-1">증상/메모 — 무엇이 잘못됐는지 구체적으로</label>
+  <textarea name="note" rows="3" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 outline-none focus:border-[#d6006a]"></textarea>
+ </div>
+ <div>
+  <label class="block text-xs text-gray-500 mb-1">이미지 첨부 (파일 선택 또는 이 영역에 Ctrl+V 붙여넣기)</label>
+  <div id="fbpaste" tabindex="0" class="border border-dashed border-gray-300 rounded-lg px-3 py-4 text-center text-xs text-gray-400 focus:border-[#d6006a] outline-none">여기를 클릭 후 Ctrl+V 로 클립보드 이미지 붙여넣기</div>
+  <input type="file" name="imagefile" accept="image/*" class="text-xs mt-1">
+  <input type="hidden" name="image64" id="fbimg64">
+  <div id="fbimgprev" class="mt-2"></div>
+ </div>
+ <label class="flex items-center gap-2"><input type="checkbox" name="redact" class="accent-[#d6006a]">🔒 비식별화(외부 반출 시 민감하면 체크 — 값·명칭을 가명 치환)</label>
+ <div class="flex justify-end gap-2 pt-1">
+  <button type="button" onclick="closeModal()" class="px-4 py-1.5 rounded-lg bg-gray-100 text-gray-600">취소</button>
+  <button class="px-4 py-1.5 rounded-lg bg-[#d6006a] text-white hover:bg-[#b80059]">개선 기록 저장</button>
+ </div>
+</form>

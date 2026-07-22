@@ -1,0 +1,28 @@
+{% if conv.log %}
+ <div class="text-sm">
+  <div class="text-green-700 font-medium">✅ 첨부됨: {{ conv.log.name }}
+   · 프레임 {{ conv.log.parsed.total or (conv.log.parsed.frames|length) }}개</div>
+  <div class="text-xs text-gray-500 mt-0.5">명세: {% for f in conv.log.files %}{{ basename(f|string) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  <div class="text-xs text-gray-400 mt-1">아래 대화창에서 로그를 질문하세요. 예) ‘코인 투입 통지 명령 찾아줘’ → ‘세 번째 프레임 필드로 파싱해줘’</div>
+  <button hx-post="/log/detach" hx-target="#logpanel" hx-swap="innerHTML"
+          class="mt-2 text-xs px-2.5 py-1 rounded-lg border border-gray-200 hover:border-red-400 hover:text-red-500">로그 분리(문서 QA로 전환)</button>
+ </div>
+{% elif plog %}
+ <form hx-post="/log/attach" hx-target="#logpanel" hx-swap="innerHTML" class="text-sm">
+  <div class="text-gray-600 mb-1">📄 {{ plog.name }} — 이 로그의 <b>프로토콜 명세 파일</b>을 고르세요:</div>
+  <div class="max-h-40 overflow-y-auto space-y-1 mb-2">
+   {% for f in plog.specs %}
+   <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="specfiles" value="{{ f }}" class="accent-[#d6006a]"><span class="truncate">{{ basename(f|string) }}</span></label>
+   {% else %}<div class="text-xs text-amber-600">명세 후보를 찾지 못했습니다. 관리에서 프로토콜 명세를 인덱싱했는지 확인하세요.</div>{% endfor %}
+  </div>
+  <button class="text-xs px-3 py-1.5 rounded-lg bg-[#d6006a] text-white hover:bg-[#b80059]">로그 첨부·파싱</button>
+  <span class="htmx-indicator text-xs text-[#d6006a] ml-2">명세에서 규격 도출 → 파싱 중…</span>
+ </form>
+{% else %}
+ <form hx-post="/log/upload" hx-target="#logpanel" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="text-sm flex items-center gap-2 flex-wrap">
+  <span class="text-gray-600">통신 로그를 첨부해 대화로 분석:</span>
+  <input type="file" name="logfile" accept=".txt,.log,.dat" class="text-xs">
+  <button class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:border-[#d6006a] hover:text-[#d6006a]">업로드</button>
+  <span class="htmx-indicator text-xs text-[#d6006a]">명세 후보 검색 중…</span>
+ </form>
+{% endif %}

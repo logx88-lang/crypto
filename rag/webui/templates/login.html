@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block body %}
+<div class="min-h-screen flex items-center justify-center bg-gray-50">
+ <div class="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 w-96">
+  <img src="/static/logo.png" class="h-7 mb-6">
+  <h1 class="text-lg font-semibold mb-1">사내 지식 QnA</h1>
+  <p class="text-xs text-gray-400 mb-5">이름별 대화 분리용 간이 로그인 (처음 쓰는 이름은 자동 등록)</p>
+  {% if error %}<div class="text-sm text-red-500 mb-3">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="space-y-3">
+   <input name="username" placeholder="사용자 이름" autofocus class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#d6006a]">
+   <input name="password" type="password" placeholder="비밀번호" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#d6006a]">
+   <button class="w-full bg-[#d6006a] text-white rounded-lg py-2 text-sm font-medium hover:bg-[#b80059]">로그인 / 등록</button>
+  </form>
+ </div>
+</div>{% endblock %}

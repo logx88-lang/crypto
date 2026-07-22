@@ -1,0 +1,13 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>사내 지식 QnA</title>
+<script src="/static/tailwind.js"></script><script src="/static/htmx.min.js"></script>
+<style>
+ body{font-family:-apple-system,"Segoe UI","Malgun Gothic",sans-serif}
+ .cite{background:#fdecef;color:#d6006a;border-radius:5px;padding:0 5px;font-weight:600;cursor:pointer;font-size:.78em;margin:0 1px;white-space:nowrap}
+ .cite:hover{background:#f9d3dd}
+ .msg-in{animation:f .3s ease}@keyframes f{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+ ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:4px}
+ .htmx-indicator{display:none}.htmx-request .htmx-indicator{display:flex!important}
+</style></head><body class="bg-white text-gray-800">
+{% block body %}{% endblock %}
+<script src="/static/app.js"></script></body></html>
