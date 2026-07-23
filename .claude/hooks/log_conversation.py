@@ -73,13 +73,25 @@ def main():
         return 0
 
     transcript_path = payload.get("transcript_path")
-    cwd = payload.get("cwd") or os.getcwd()
     if not transcript_path or not os.path.exists(transcript_path):
         return 0
 
     hooks_dir = os.path.dirname(os.path.abspath(__file__))
     state_path = os.path.join(hooks_dir, ".log_state.json")
-    log_path = os.path.join(cwd, "conversation_log.md")
+    # 로그는 항상 이 스크립트가 속한 저장소 루트(crypto)에 기록한다.
+    # (기존 cwd 기준은 상위 폴더에서 세션이 돌면 엉뚱한 위치에 파일이 생기는 버그)
+    repo_root = os.path.dirname(os.path.dirname(hooks_dir))          # .claude/hooks → repo
+    log_path = os.path.join(repo_root, "conversation_log.md")
+
+    # 가드: 훅이 상위 프로젝트에도 등록될 수 있으므로, 이 저장소(crypto)를 실제로 다룬
+    # 세션만 기록한다(트랜스크립트에 저장소 경로 언급 여부). 무관한 대화가 GitHub에
+    # push되는 이 저장소의 로그에 섞이는 것을 방지.
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            if repo_root not in f.read():
+                return 0
+    except Exception:
+        return 0
 
     written = _load_state(state_path)
     new_lines = []

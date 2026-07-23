@@ -389,3 +389,28 @@
 ### 다음 액션
 - 서버 A(배포)에서 8502 실측 후 Streamlit(rag/app) 최종 폐기 여부 확정. 그 전까지 두 UI 병행.
 - 오프라인 wheelhouse 빌드 시 starlette/uvicorn/python-multipart win_amd64 wheel 포함 확인(전부 순수 파이썬).
+
+## 2026-07-23 — 배포 실측 대응 + 근본해법(네이티브 클라이언트) + 로깅 훅 복구
+
+### 배포 실측에서 나온 문제와 해결
+- **PS5.1 파싱 에러**: start_webui.ps1 의 삼항 `?:` 는 PowerShell 7 전용 → 서버 A(powershell.exe 5.1)에서
+  UnexpectedToken. if/else 로 교체. 전 ps1 스캔 결과 다른 PS7 전용 문법 없음.
+- **사내 보안: 브라우저 파일 첨부 차단**: 우회책으로 로그 텍스트 붙여넣기(/log/paste)·문서 폴더복사+
+  재인덱싱 안내를 넣었으나, **근본 원인은 '관리 대상 브라우저' 정책**임을 확인(동료의 네이티브 EXE
+  메신저는 같은 서버에서 파일/클립보드 정상 → 네이티브 앱은 정책 밖).
+
+### 근본 해법 채택: WebView2 네이티브 클라이언트 재활용
+- 기존 pywebview 클라이언트(packaging/client/rag_client.py, rag-client.exe)를 Streamlit(8501)에서
+  **신규 웹 UI(8502)로 재조준**. UI는 동일 엔진(Edge WebView2)이 그대로 렌더 → 인용 미리보기 등 전 기능
+  동일 + 파일 업로드/다운로드·클립보드 동작. /health 엔드포인트 추가(도달성 체크).
+- ATEC 마젠타 말풍선 app.ico 생성, build_client.ps1 에 --icon 연결(PS5.1 스플래팅).
+- 운영 형태: 서버 A = start_webui.ps1(8502)만 상시 + 각 PC = rag-client.exe 더블클릭.
+- 다음: 온라인 PC에서 build_client.ps1 로 exe 빌드 → 개발 PC에서 파일 업로드 실측.
+  (만일 DLP가 OS 파일대화상자까지 후킹하면 pywebview 네이티브 파일 API로 2차 보강 예정)
+
+### 대화 자동 로깅 훅 복구
+- 원인: 세션이 상위 폴더에서 실행되면 crypto/.claude/settings.json 훅이 로드 안 됨 + 훅이 cwd 기준으로
+  로그를 써 위치가 틀어짐. 7/13 이후 로그 공백 발생.
+- 수정: 훅이 로그를 **스크립트 위치 기준(저장소 루트)** 에 쓰도록 고정 + crypto 를 다룬 세션만 기록하는
+  가드 추가(무관 대화가 push 되는 저장소에 섞임 방지). 누락 세션 백필 완료(1,292→14,209줄, 누출 검수 0건).
+- 남은 것: 상위 프로젝트(.claude/settings.json)에 Stop 훅 등록은 사용자 승인 필요(자가수정 제한).

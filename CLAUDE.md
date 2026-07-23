@@ -35,7 +35,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 구성요소 | 선택 |
 |---|---|
-| 웹 UI | Streamlit (단일 호스트 다중 사용자 2~3명, `0.0.0.0:8501`) |
+| UI | **Starlette+HTMX 웹 UI**(`rag/webui`, `0.0.0.0:8502`) + **WebView2 네이티브 클라이언트**(`packaging/client` → rag-client.exe; 사내 브라우저의 파일첨부 차단 정책 회피). Streamlit(8501)은 폴백으로만 유지 |
 | LLM | qwen3_8b_ctx32998 (주, 8B·32k ctx) / qwen3.5:2b (폴백) via Ollama |
 | 임베딩 | bge-m3 (1024d) via Ollama — **정품 재반입 확정**(기존 태그는 nomic 오라벨, `docs/model_transfer.md`) |
 | 리랭커 | bge-reranker-v2-m3 (sentence-transformers CrossEncoder, **CPU**) — MVP 포함 |
@@ -68,7 +68,10 @@ HEX 모드는 별도 분기(후보 검색 → **UI 확인 단계 필수** → �
   - `rag/ingest/` — 포맷별 파서(`parsers.py`)·표 직렬화(`tables.py`)·표 보존 청킹(`chunker.py`)·모델(`models.py`). **결정적, Ollama 불필요.**
   - `rag/logs/` — 통신 로그 분석: 장비별 파싱 프로파일(`profiles.py`)·HEX/자연어 감지(`detect.py`)·바이트 복원+체크섬(`parser.py`).
   - `rag/config.py` — 모델 태그·청킹/검색 파라미터(환경변수로 덮어쓰기).
-  - `rag/index /retrieve /generate /app` — 2차 증분(Ollama 필요, 미구현).
+  - `rag/index /retrieve /generate` — 인덱싱·하이브리드 검색·생성(Ollama 연동, 구현 완료).
+  - `rag/chat/` — 멀티턴 대화 엔진(engine)·대화 저장(store)·로그첨부 분석(logchat).
+  - `rag/webui/` — **주 UI**(Starlette+HTMX, :8502). 대화/문서범위 트리/로그첨부/개선기록/관리/미리보기.
+  - `rag/app/` — 구 Streamlit UI(:8501, 폴백). `packaging/client/` — WebView2 네이티브 클라이언트(exe).
 - `samples/` — 더미 샘플 생성기(`generate_samples.py`)·산출물(`dummy_set/`)·검토요약(`MANIFEST.md`).
 - `tests/test_core.py` — 결정적 코어를 `dummy_set` 샘플로 대조 검증.
 
