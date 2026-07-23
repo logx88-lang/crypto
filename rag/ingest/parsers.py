@@ -220,6 +220,56 @@ def parse_pptx(path: str) -> ParsedDoc:
 # ---------------------------------------------------------------------------
 # pdf
 # ---------------------------------------------------------------------------
+def _norm_row(row) -> tuple:
+    return tuple(str(c or "").strip() for c in row)
+
+
+def _merge_cross_page_tables(page_tbls: dict, page_h: dict,
+                             bottom_margin: float = 120.0,
+                             top_margin: float = 150.0) -> dict:
+    """페이지 걸침 표 병합 → {시작페이지: [(rows, page_span|None), ...]}.
+
+    판단: 이전 페이지의 '마지막 표'가 페이지 하단(bottom_margin 이내)까지 닿고,
+    다음 페이지의 '첫 표'가 상단(top_margin 이내)에서 시작하며 열 수가 같으면
+    같은 표의 연속으로 보고 행을 이어붙인다(다음 조각의 반복 헤더 제거). 여러 페이지 연쇄 지원.
+    """
+    out: dict = {p: [] for p in page_tbls}
+    open_chain = None      # {"start": p, "rows": [...], "ncols": n, "header": tuple, "end": p}
+    for p in sorted(page_tbls):
+        tbls = page_tbls[p]
+        h = page_h.get(p, 842.0)
+        for ti, t in enumerate(tbls):
+            cont = (open_chain is not None and ti == 0
+                    and t["top"] <= top_margin
+                    and t["ncols"] == open_chain["ncols"]
+                    and p == open_chain["end"] + 1)
+            if cont:
+                rows = t["rows"]
+                # 다음 페이지 첫 행이 반복 헤더(첫 조각 헤더와 동일)면 제거
+                if rows and _norm_row(rows[0]) == open_chain["header"]:
+                    rows = rows[1:]
+                open_chain["rows"].extend(rows)
+                open_chain["end"] = p
+            else:
+                if open_chain is not None:
+                    _close_chain(out, open_chain)
+                open_chain = {"start": p, "end": p, "rows": list(t["rows"]),
+                              "ncols": t["ncols"], "header": _norm_row(t["rows"][0])}
+            # 페이지 하단까지 닿지 않거나 마지막 표가 아니면 다음 페이지로 이어질 수 없음
+            is_last = ti == len(tbls) - 1
+            if open_chain is not None and not (is_last and t["bottom"] >= h - bottom_margin):
+                _close_chain(out, open_chain)
+                open_chain = None
+    if open_chain is not None:
+        _close_chain(out, open_chain)
+    return out
+
+
+def _close_chain(out: dict, chain: dict) -> None:
+    span = f"{chain['start']}-{chain['end']}" if chain["end"] > chain["start"] else None
+    out.setdefault(chain["start"], []).append((chain["rows"], span))
+
+
 def parse_pdf(path: str, ocr_backend=None) -> ParsedDoc:
     import pdfplumber
     from .ocr import ocr_image, get_ocr_backend
@@ -237,10 +287,26 @@ def parse_pdf(path: str, ocr_backend=None) -> ParsedDoc:
     sample = []
     scanned_pages = []      # OCR 못한(비활성) 스캔 페이지
     ocr_pages = []          # OCR로 텍스트 복원한 페이지
+    page_text: dict = {}    # idx -> 텍스트 Element
+    page_tbls: dict = {}    # idx -> [{rows, top, bottom, ncols}] (페이지 걸침 병합 판단용)
+    page_h: dict = {}
     with pdfplumber.open(path) as pdf:
         for idx, page in enumerate(pdf.pages, start=1):
             text = (page.extract_text() or "").strip()
-            tables = page.extract_tables() or []
+            try:
+                found = page.find_tables() or []
+            except Exception:
+                found = []
+            tables = []
+            for t in found:
+                rows = t.extract() or []
+                rows = [r for r in rows if any(c not in (None, "") for c in r)]
+                if rows:
+                    tables.append({"rows": rows, "top": float(t.bbox[1]),
+                                   "bottom": float(t.bbox[3]),
+                                   "ncols": max(len(r) for r in rows)})
+            page_h[idx] = float(page.height)
+            page_tbls[idx] = tables
             if not text and not tables:
                 # 스캔(이미지) 페이지 → OCR 라우팅(§3 pdf)
                 if _ocr_ready():
@@ -250,8 +316,8 @@ def parse_pdf(path: str, ocr_backend=None) -> ParsedDoc:
                     except Exception:
                         otext = ""
                     if otext:
-                        elements.append(Element("text", otext,
-                                                {"page_no": idx, "source": "ocr"}))
+                        page_text[idx] = Element("text", otext,
+                                                 {"page_no": idx, "source": "ocr"})
                         ocr_pages.append(idx)
                         if len(sample) < 5:
                             sample.append(otext[:200])
@@ -259,13 +325,23 @@ def parse_pdf(path: str, ocr_backend=None) -> ParsedDoc:
                 scanned_pages.append(idx)
                 continue
             if text:
-                elements.append(Element("text", text, {"page_no": idx}))
+                page_text[idx] = Element("text", text, {"page_no": idx})
                 if len(sample) < 5:
                     sample.append(text[:200])
-            for t in tables:
-                md = table_to_markdown(t, header=True)
-                if md:
-                    elements.append(Element("table", md, {"page_no": idx}))
+
+    # 페이지에 걸쳐 이어지는 표 병합(예: 명령 목록 표가 4~5페이지에 나뉜 경우 → 하나의 표).
+    merged = _merge_cross_page_tables(page_tbls, page_h)
+    # 원문 읽기 순서 유지: 페이지순으로 텍스트 → 그 페이지에서 시작한 표
+    for idx in sorted(set(list(page_text.keys()) + list(merged.keys()))):
+        if idx in page_text:
+            elements.append(page_text[idx])
+        for rows, span in merged.get(idx, []):
+            md = table_to_markdown(rows, header=True)
+            if md:
+                loc = {"page_no": idx}
+                if span:
+                    loc["page_span"] = span      # 예: "4-5" (여러 페이지에 걸친 표)
+                elements.append(Element("table", md, loc))
     title = _title_from_name(path)
     doc = ParsedDoc(source_file=os.path.basename(path), doc_title=title,
                     doc_type=_classify(title, "\n".join(sample)), ext="pdf",

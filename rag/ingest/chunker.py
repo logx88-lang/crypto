@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..config import CONFIG
-from .models import ParsedDoc, Chunk, make_chunk
+from .models import ParsedDoc, Chunk, make_chunk, content_hash
 
 
 def _soft_window(text: str, size: int, overlap: int) -> list:
@@ -85,11 +85,19 @@ def chunk_document(doc: ParsedDoc) -> list:
             # (예: "Card 정보 요청" 질의가 'Card 정보 요청 > 요청전문'의 표에 매칭되게)
             ctx = el.location.get("section_path") or el.location.get("section") or doc.doc_title or ""
             prefix = f"[{ctx}]\n" if ctx else ""
-            for piece in _split_table_md(el.text, cfg.table_max_chars):
+            pieces = _split_table_md(el.text, cfg.table_max_chars)
+            # 큰 표가 조각으로 나뉘면 조각들을 같은 표로 묶는 식별자 부여 →
+            # 답변 시 어느 조각이 검색되든 표 전체를 복원(왜곡·누락 방지)할 수 있게 한다.
+            tid = content_hash(el.text)[:12] if len(pieces) > 1 else None
+            for pi, piece in enumerate(pieces, start=1):
                 text = prefix + piece
+                loc = dict(el.location)
+                if tid:
+                    loc.update({"table_id": tid, "table_part": pi,
+                                "table_parts": len(pieces)})
                 chunks.append(make_chunk(text, source_file=doc.source_file,
                                          doc_title=doc.doc_title, doc_type=doc.doc_type,
-                                         kind="table", location=el.location, index=idx))
+                                         kind="table", location=loc, index=idx))
                 idx += 1
         elif el.kind == "text":
             if buf_loc is None:

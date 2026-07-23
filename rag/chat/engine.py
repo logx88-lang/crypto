@@ -22,6 +22,8 @@ CHAT_SYSTEM = (
     " 이전 답변 내용을 근거 없이 반복하지 않습니다.\n"
     "3. 각 주장 뒤에 근거 출처를 [번호]로 표기합니다(예: …입니다 [1]).\n"
     "4. 여러 항목·값을 나열할 때는 마크다운 표(| 열 | … |)로 정리합니다(화면에 표로 렌더됨).\n"
+    "   문서의 표 내용을 전달할 때는 **원본 그대로** 옮깁니다 — 행 생략·값 변경·임의 재구성 금지."
+    " '모든/전체/목록' 요청이면 표의 모든 행을 빠짐없이 나열합니다.\n"
     "5. 답변에 도면·그림·화면 등 시각 자료를 보여주는 것이 도움이 되면, 그 위치에 [그림 번호] 를"
     " 단독 표기합니다(예: 배선은 다음과 같습니다. [그림 2]) — 해당 근거의 이미지가 그 자리에 표시됩니다.\n"
     "6. 발췌·대화에 근거가 없으면 지어내지 말고 '제공된 문서에서 근거를 찾지 못했습니다'라고 답합니다."
@@ -83,6 +85,60 @@ _OVERVIEW_RE = re.compile(
 
 def _is_overview(question: str) -> bool:
     return bool(_OVERVIEW_RE.search(question or ""))
+
+
+def _merge_table_parts(parts: list) -> str:
+    """분할 표 조각들([섹션]접두 + 반복 헤더 포함)을 하나의 완전한 표로 이어붙인다."""
+    out = []
+    for i, p in enumerate(parts):
+        lines = (p or "").split("\n")
+        if i > 0:
+            if lines and lines[0].startswith("["):          # [섹션] 접두 제거
+                lines = lines[1:]
+            if (len(lines) >= 2 and lines[0].lstrip().startswith("|")
+                    and set(lines[1].replace(" ", "")) <= set("|-:")):
+                lines = lines[2:]                            # 반복 헤더(헤더+구분선) 제거
+        out.extend(lines)
+    return "\n".join(out)
+
+
+def _complete_tables(pipeline, top: list, budget_chars: int = 12000) -> list:
+    """검색된 청크 중 '분할된 표의 조각'이 있으면 같은 표의 모든 조각을 모아 완전한 표로 교체.
+
+    큰 표(예: 명령 목록이 여러 페이지·조각)에서 일부 행만 컨텍스트에 들어가
+    답변이 누락·왜곡되는 것을 방지한다. 같은 표의 중복 조각은 하나로 합친다."""
+    try:
+        col = pipeline.retriever.store._col
+    except Exception:
+        return top
+    out, seen = [], set()
+    for c in top:
+        m = c.get("metadata", {})
+        tid = m.get("table_id")
+        if not tid or (m.get("table_parts") or 1) <= 1:
+            out.append(c)
+            continue
+        if tid in seen:                     # 같은 표의 다른 조각 → 이미 병합돼 있음
+            continue
+        seen.add(tid)
+        try:
+            got = col.get(where={"table_id": tid}, include=["documents", "metadatas"])
+            docs, metas = got.get("documents") or [], got.get("metadatas") or []
+        except Exception:
+            docs = []
+        if len(docs) <= 1:
+            out.append(c)
+            continue
+        order = sorted(range(len(docs)), key=lambda i: metas[i].get("table_part", 0))
+        merged = _merge_table_parts([docs[i] for i in order])
+        if len(merged) > budget_chars:
+            merged = merged[:budget_chars] + "\n… (표가 매우 길어 이후 행 생략 — 원본은 출처 미리보기 참조)"
+        mc = dict(c)
+        mc["document"] = merged
+        mm = {k: v for k, v in m.items() if k != "table_part"}
+        mc["metadata"] = mm
+        out.append(mc)
+    return out
 
 
 def _gather_scope_docs(pipeline, files: list, max_chars: int = 6000) -> list:
@@ -158,6 +214,7 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
         cands = pipeline.retriever.search(_retrieval_query(conv, question), where=where)
         top = pipeline.reranker.rerank(question, cands, final_k=k) if cands else []
         label = "문서 발췌"
+    top = _complete_tables(pipeline, top)       # 분할 표 조각 → 표 전체로 복원(누락·왜곡 방지)
 
     # 새 주제 질문이면 히스토리를 최소(2)로 줄여 이전 답변 앵커링(매몰)을 완화.
     messages = [{"role": "system", "content": CHAT_SYSTEM}]
