@@ -42,6 +42,9 @@ class Config:
     num_ctx: int = int(_env("RAG_NUM_CTX", "4096"))
     llm_timeout: float = float(_env("RAG_LLM_TIMEOUT", "600"))   # CPU 추론 여유(GPU는 짧아도 됨)
     embed_timeout: float = float(_env("RAG_EMBED_TIMEOUT", "120"))
+    keep_alive: str = _env("RAG_KEEP_ALIVE", "30m")   # Ollama 모델 상주 시간(질문마다 재로드 회피)
+    # 질의 임베딩을 CPU로(=0): 8GB VRAM에서 LLM과 겹쳐 서로 밀어내는(스왑) 경우의 처방
+    embed_gpu: bool = _env("RAG_EMBED_GPU", "1") not in ("0", "false", "False")
 
     # --- 청킹 (토큰 근사는 문자 기반; 실제 임베딩은 bge-m3 토크나이저) ---
     chunk_chars: int = int(_env("RAG_CHUNK_CHARS", "1200"))   # ~500-700 토큰 근사
@@ -57,7 +60,8 @@ class Config:
     top_k_dense: int = 20
     top_k_bm25: int = 20
     rrf_k: int = 60
-    rerank_top_n: int = 20   # 리랭커 입력 후보 수
+    rerank_top_n: int = int(_env("RAG_RERANK_TOPN", "12"))   # 리랭커 입력 후보 수(CPU 속도 좌우)
+    rerank_maxlen: int = int(_env("RAG_RERANK_MAXLEN", "512"))  # 리랭커 시퀀스 상한(표 청크 절단→수 배 가속)
     final_k: int = 5         # 최종 컨텍스트 청크 수
     # 리랭커(sentence-transformers/torch) 사용 여부. RAM/torch 문제 시 0으로 끄면
     # 하이브리드(RRF) 순위 상위를 그대로 사용(교차인코더 재정렬만 생략).

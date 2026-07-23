@@ -134,18 +134,25 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
         from .logchat import answer_with_log
         return answer_with_log(pipeline, conv, question)
 
+    import time
     cfg = pipeline.cfg
     k = final_k or cfg.final_k
     where = {"rel_path": {"$in": list(scope_files)}} if scope_files else None
 
     # 요약/개요 류 질의 + 문서 선택 시: 의미검색(top-k) 대신 선택 문서 내용을 폭넓게 모아 종합.
+    t0 = time.perf_counter()
     overview = scope_files and _is_overview(question)
+    t_search = t_rerank = 0.0
     if overview:
         top = _gather_scope_docs(pipeline, scope_files)
         label = "선택 문서 내용"
+        t_search = time.perf_counter() - t0
     else:
         cands = pipeline.retriever.search(_retrieval_query(conv, question), where=where)
+        t_search = time.perf_counter() - t0
+        t1 = time.perf_counter()
         top = pipeline.reranker.rerank(question, cands, final_k=k) if cands else []
+        t_rerank = time.perf_counter() - t1
         label = "문서 발췌"
     if overview and not top:                    # 수집 실패 시 일반 검색 폴백
         cands = pipeline.retriever.search(_retrieval_query(conv, question), where=where)
@@ -157,11 +164,17 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
     messages += _history_messages(conv, keep=6 if _is_followup(question) else 2)
     messages.append({"role": "user", "content":
                      f"[{label}]\n{_context_block(top)}\n\n[질문]\n{question}"})
+    t2 = time.perf_counter()
     text = pipeline.llm.chat(messages)
     if not (text or "").strip() and len(top) > 1:      # 빈 답변 방어(컨텍스트 축소 재시도)
         messages[-1]["content"] = (
             f"[문서 발췌]\n{_context_block(top[:max(1, len(top)//2)])}\n\n[질문]\n{question}")
         text = pipeline.llm.chat(messages)
+    t_llm = time.perf_counter() - t2
+    timing = (f"검색 {t_search:.1f}s"
+              + (f" · 리랭크 {t_rerank:.1f}s" if not overview else "")
+              + f" · 생성 {t_llm:.1f}s")
+    print(f"[속도] {timing} | 질문: {question[:40]}", flush=True)   # 서버 콘솔 병목 진단용
 
     srcs = sources_list(top)
     # 근거 원문 발췌 + 파일경로·위치를 메시지에 저장 → 턴별 펼쳐보기 + 원본 파일 미리보기.
@@ -175,7 +188,8 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
                     if m.get(k)},
         })
     conv["messages"].append({"role": "user", "content": question})
-    conv["messages"].append({"role": "assistant", "content": text, "sources": src_full})
+    conv["messages"].append({"role": "assistant", "content": text, "sources": src_full,
+                             "timing": timing})
     if conv.get("title", "새 대화") in ("새 대화", "") and len([m for m in conv["messages"]
                                                           if m["role"] == "user"]) == 1:
         conv["title"] = question[:30]      # 첫 질문을 대화 제목으로

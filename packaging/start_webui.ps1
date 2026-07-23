@@ -19,6 +19,11 @@ $env:RAG_RERANKER = "C:\models\bge-reranker-v2-m3"    # USB로 반입한 리랭�
 $env:RAG_LLM_TIMEOUT = "300"                          # GPU면 300, 느리면 상향
 $env:OLLAMA_HOST  = "http://127.0.0.1:11434"
 $env:RAG_NUM_CTX  = "8192"
+# --- 응답 속도 튜닝 (답변 하단 ⏱ 표시·서버 콘솔 [속도] 로그로 병목 확인 후 조정) ---
+$env:RAG_KEEP_ALIVE   = "30m"   # 모델 상주 시간(질문마다 재로드 방지)
+$env:RAG_RERANK_TOPN  = "12"    # CPU 리랭커 후보 수. '리랭크'가 크면 8로 ↓ (또는 RAG_RERANK=0)
+$env:RAG_RERANK_MAXLEN = "512"  # 리랭커 문서 절단 길이. 길수록 정확·느림
+# $env:RAG_EMBED_GPU  = "0"     # '검색'이 수 초씩 크면(=VRAM 스왑) 주석 해제: 질의 임베딩을 CPU로
 $Port = 8502
 # ------------------------------------------------------------------------
 

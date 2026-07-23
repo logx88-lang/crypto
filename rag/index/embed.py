@@ -50,14 +50,19 @@ class EmbeddingClient:
         if not texts:
             return []
         # 신 API(/api/embed, input=배열). 실패 시 구 API(/api/embeddings, prompt=단건) 폴백.
+        # keep_alive: 임베딩 모델 상주(질문마다 재로드 회피). RAG_EMBED_GPU=0 이면 CPU 실행
+        # (8GB VRAM에서 LLM과 서로 밀어내는 스왑 방지 — 질의 임베딩은 CPU로도 충분히 빠름).
+        extra = {"keep_alive": CONFIG.keep_alive}
+        if not CONFIG.embed_gpu:
+            extra["options"] = {"num_gpu": 0}
         try:
-            out = self._post("/api/embed", {"model": self.model, "input": texts})
+            out = self._post("/api/embed", {"model": self.model, "input": texts, **extra})
             vecs = out.get("embeddings")
             if vecs is None:
                 raise EmbeddingError("응답에 embeddings 없음")
         except EmbeddingError:
             vecs = [self._post("/api/embeddings",
-                               {"model": self.model, "prompt": t})["embedding"]
+                               {"model": self.model, "prompt": t, **extra})["embedding"]
                     for t in texts]
         self._validate(vecs)
         return vecs

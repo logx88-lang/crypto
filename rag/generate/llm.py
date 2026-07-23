@@ -33,7 +33,7 @@ class LLMClient:
     def _post(self, model: str, messages: list, think: bool = False) -> str:
         payload = {
             "model": model, "messages": messages, "stream": False,
-            "keep_alive": "10m",   # 호출 간 모델 상주 유지(CPU 재적재 회피)
+            "keep_alive": CONFIG.keep_alive,   # 호출 간 모델 상주 유지(질문마다 재적재 회피)
             "options": {"num_ctx": self.num_ctx, "temperature": 0.0},
         }
         if think is not None:

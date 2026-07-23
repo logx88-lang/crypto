@@ -9,6 +9,7 @@
    {% for s in sources %}{% if s.rel_path %}
    <button hx-get="/preview?rel_path={{ enc(s.rel_path) }}{% for k,v in (s.loc or {}).items() %}&{{k}}={{ enc(v|string) }}{% endfor %}" hx-target="#modal-body" onclick="openModal()" class="px-2 py-1 rounded-md border border-gray-200 hover:border-[#d6006a] hover:text-[#d6006a] bg-white">[{{ s.n }}] {{ (s.rel_path.split('/')|last)[:22] }}</button>
    {% endif %}{% endfor %}
+   {% if timing %}<span class="ml-auto text-gray-300" title="단계별 소요 시간">⏱ {{ timing }}</span>{% endif %}
   </div>
  </div>
 </div>

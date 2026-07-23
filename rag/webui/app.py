@@ -197,7 +197,7 @@ def _msg_html(request, m: dict, idx: int, cid: str) -> str:
     body = _link_citations(_md_lite(m["content"]), m.get("sources") or [])
     return templates.env.get_template("_assistant_msg.html").render(
         body=body, sources=m.get("sources") or [], idx=idx, cid=cid,
-        answer_raw=m["content"], enc=urllib.parse.quote)
+        timing=m.get("timing"), answer_raw=m["content"], enc=urllib.parse.quote)
 
 
 def _messages_html(request, conv):

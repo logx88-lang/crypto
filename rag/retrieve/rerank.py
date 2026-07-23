@@ -17,7 +17,10 @@ class Reranker:
     def _ensure(self):
         if self._model is None:
             from sentence_transformers import CrossEncoder  # 지연 임포트
-            self._model = CrossEncoder(self.model_path, device=self.device)
+            # max_length 제한: 표 청크 등 긴 문서를 전체 길이(8k)로 채점하면 CPU에서 수십 초.
+            # 앞 512토큰이면 순위 판단에 충분 → 수 배 가속 (RAG_RERANK_MAXLEN 으로 조정).
+            self._model = CrossEncoder(self.model_path, device=self.device,
+                                       max_length=CONFIG.rerank_maxlen)
         return self._model
 
     def scores(self, query: str, texts: list) -> list:
