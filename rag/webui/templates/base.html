@@ -8,6 +8,18 @@
  .msg-in{animation:f .3s ease}@keyframes f{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
  ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:4px}
  .htmx-indicator{display:none}.htmx-request .htmx-indicator{display:flex!important}
+ .spin{width:28px;height:28px;border:3px solid #f9d3dd;border-top-color:#d6006a;border-radius:50%;animation:sp .8s linear infinite}
+ @keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body class="bg-white text-gray-800">
 {% block body %}{% endblock %}
+<!-- 작업 중 화면 차단 오버레이: 답변 생성/인덱싱/로그 파싱 동안 다른 조작 방지 -->
+<div id="busy" class="fixed inset-0 hidden items-center justify-center z-[60]"
+     style="background:rgba(255,255,255,.55);backdrop-filter:blur(1.5px)">
+ <div class="bg-white border border-gray-200 rounded-2xl shadow-lg px-8 py-6 flex flex-col items-center gap-3">
+  <div class="spin"></div>
+  <div id="busy-msg" class="text-sm text-gray-600">처리 중…</div>
+  <button id="busy-cancel" onclick="cancelGen()"
+          class="hidden text-xs px-4 py-1.5 rounded-lg border border-gray-300 hover:border-red-400 hover:text-red-500">✕ 생성 취소</button>
+ </div>
+</div>
 <script src="/static/app.js"></script></body></html>

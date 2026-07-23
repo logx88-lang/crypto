@@ -15,6 +15,7 @@ import urllib.parse
 from datetime import datetime, timezone
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import HTMLResponse, RedirectResponse, PlainTextResponse, FileResponse
 from starlette.routing import Route, Mount
 from starlette.staticfiles import StaticFiles
@@ -291,15 +292,40 @@ async def chat(request):
     if not q:
         return HTMLResponse("")
     scope = sorted(_scope_set(sess, conv["id"])) or None
+    gen = {"cancel": False}
+    sess["gen"] = gen                      # /chat/cancel 이 이 플래그를 세움
     try:
-        engine.answer(get_pipe(), conv, q, scope_files=scope)
+        # 스레드풀 실행: 생성이 이벤트 루프를 막지 않게(취소 요청·다른 사용자 요청이 즉시 처리됨)
+        await run_in_threadpool(engine.answer, get_pipe(), conv, q, scope_files=scope)
     except Exception as e:
         err = html.escape(f"오류: {e} — Ollama·인덱스를 확인하세요.")
         conv["messages"].append({"role": "user", "content": q})
         conv["messages"].append({"role": "assistant", "content": err, "sources": []})
+    if gen.get("cancel"):
+        # 취소됨: 이미 저장된 이 질문·답변 쌍을 대화에서 제거(최신 디스크 상태 기준) → 화면에도 미표시
+        try:
+            fresh = store.load_conversation(sess["user"], conv["id"])
+            msgs = fresh.get("messages", [])
+            for i in range(len(msgs) - 2, -1, -1):
+                if (msgs[i].get("role") == "user" and msgs[i].get("content") == q
+                        and i + 1 < len(msgs) and msgs[i + 1].get("role") == "assistant"):
+                    del msgs[i:i + 2]
+                    break
+            store.save_conversation(fresh)
+        except Exception:
+            pass
+        return HTMLResponse("")
     msgs = conv.get("messages", [])
     return HTMLResponse("".join(_msg_html(request, m, len(msgs) - 2 + i, conv["id"])
                                for i, m in enumerate(msgs[-2:])))
+
+
+async def chat_cancel(request):
+    """생성 취소 — 진행 중인 /chat 의 결과를 버리도록 표시(모델 연산은 백그라운드로 끝나고 폐기됨)."""
+    sess = _sess(request)
+    if sess and isinstance(sess.get("gen"), dict):
+        sess["gen"]["cancel"] = True
+    return PlainTextResponse("ok")
 
 
 # --- 문서 범위(스코프) 트리 ------------------------------------------------
@@ -355,7 +381,7 @@ async def log_upload(request):
         return HTMLResponse(_logpanel_html(request, sess, conv))
     text = (await up.read()).decode("utf-8", errors="replace")
     try:
-        _prepare_plog(sess, text, up.filename)
+        await run_in_threadpool(_prepare_plog, sess, text, up.filename)
     except Exception as e:
         return HTMLResponse(f"<p class='text-red-500 text-sm'>로그 준비 실패: {html.escape(str(e))}</p>")
     return HTMLResponse(_logpanel_html(request, sess, conv))
@@ -371,7 +397,7 @@ async def log_paste(request):
     if not text:
         return HTMLResponse(_logpanel_html(request, sess, conv))
     try:
-        _prepare_plog(sess, text, "붙여넣은 로그")
+        await run_in_threadpool(_prepare_plog, sess, text, "붙여넣은 로그")
     except Exception as e:
         return HTMLResponse(f"<p class='text-red-500 text-sm'>로그 준비 실패: {html.escape(str(e))}</p>")
     return HTMLResponse(_logpanel_html(request, sess, conv))
@@ -389,7 +415,8 @@ async def log_attach(request):
         try:
             from ..chat import logchat
             pipe = get_pipe()
-            logchat.attach_log(conv, plog["text"], sel, pipe.retriever, pipe.llm, name=plog["name"])
+            await run_in_threadpool(logchat.attach_log, conv, plog["text"], sel,
+                                    pipe.retriever, pipe.llm, name=plog["name"])
             sess.pop("plog", None)
         except Exception as e:
             return HTMLResponse(f"<p class='text-red-500 text-sm'>로그 첨부 실패: {html.escape(str(e))}</p>")
@@ -527,7 +554,7 @@ async def admin_reindex(request):
         return PlainTextResponse("세션 만료", 401)
     full = request.query_params.get("full") == "1"
     try:
-        result = _reindex(full)
+        result = await run_in_threadpool(_reindex, full)
     except Exception as e:
         result = f"<span class='text-red-500'>인덱싱 실패: {html.escape(str(e))}</span>"
     return templates.TemplateResponse(request, "_admin_main.html", _admin_ctx(request, sess, result))
@@ -554,7 +581,8 @@ async def admin_upload(request):
                 out.write(await f.read())
             saved.append(f.filename)
         result = (f"저장: <b>{'/'.join(parts) or '(루트)'}</b> · {len(saved)}개 "
-                  f"({html.escape(', '.join(saved[:20]))})<br>" + _reindex(full=False))
+                  f"({html.escape(', '.join(saved[:20]))})<br>" +
+                  await run_in_threadpool(_reindex, False))
     except Exception as e:
         result = f"<span class='text-red-500'>실패: {html.escape(str(e))}</span>"
     return templates.TemplateResponse(request, "_admin_main.html", _admin_ctx(request, sess, result))
@@ -622,6 +650,7 @@ app = Starlette(routes=[
     Route("/conv/{cid}", switch_conv),
     Route("/conv/{cid}/delete", delete_conv, methods=["POST"]),
     Route("/chat", chat, methods=["POST"]),
+    Route("/chat/cancel", chat_cancel, methods=["POST"]),
     Route("/scope/check", scope_check, methods=["POST"]),
     Route("/scope/fold", scope_fold, methods=["POST"]),
     Route("/log/upload", log_upload, methods=["POST"]),

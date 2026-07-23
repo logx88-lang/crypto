@@ -7,11 +7,60 @@ function copyAnswer(id,btn){
   else{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity=0;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);}
   if(btn){const o=btn.innerText;btn.innerText='✓ 복사됨';setTimeout(()=>btn.innerText=o,1200);}
 }
-function afterSend(){const b=document.getElementById('msgbox');if(b){b.value='';b.style.height='auto';}scrollBottom();}
+function afterSend(ev){
+  // 성공(2xx)일 때만 입력창 비움 — 취소/실패 시 질문 텍스트 보존(다시 보내기 편하게)
+  if(ev && ev.detail && ev.detail.successful){
+    const b=document.getElementById('msgbox');if(b){b.value='';b.style.height='auto';}
+  }
+  scrollBottom();
+}
 function scrollBottom(){const m=document.getElementById('messages');if(m)m.scrollTop=m.scrollHeight;}
 document.addEventListener('htmx:afterSwap',scrollBottom);
 document.addEventListener('input',e=>{if(e.target.id==='msgbox'){e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,160)+'px';}});
-document.addEventListener('keydown',e=>{if(e.target.id==='msgbox'&&e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('chatform').requestSubmit();}});
+document.addEventListener('keydown',e=>{
+  if(e.target.id==='msgbox'&&e.key==='Enter'&&!e.shiftKey){
+    e.preventDefault();
+    if(isBusy())return;                    // 생성 중엔 Enter 재전송 금지
+    document.getElementById('chatform').requestSubmit();
+  }
+});
+
+// ---- 작업 중 화면 차단 오버레이 + 생성 취소 --------------------------------
+// 오래 걸리는 요청 경로 → 표시 문구(그 외 짧은 요청은 오버레이 없음)
+const BUSY_PATHS={
+  '/chat':{msg:'답변 생성 중… (검색 → 리랭킹 → 생성)',cancel:true},
+  '/log/upload':{msg:'명세 후보 검색 중…'},
+  '/log/attach':{msg:'명세에서 규격 도출 → 로그 파싱 중…'},
+  '/admin/upload':{msg:'문서 저장 + 인덱싱 중… 완료까지 잠시 기다려주세요'},
+  '/admin/reindex':{msg:'인덱싱 중… 완료까지 잠시 기다려주세요'},
+};
+function isBusy(){const b=document.getElementById('busy');return b&&!b.classList.contains('hidden');}
+function busyShow(msg,cancelable){
+  const b=document.getElementById('busy');if(!b)return;
+  document.getElementById('busy-msg').textContent=msg||'처리 중…';
+  document.getElementById('busy-cancel').classList.toggle('hidden',!cancelable);
+  b.classList.remove('hidden');b.classList.add('flex');
+}
+function busyHide(){
+  const b=document.getElementById('busy');if(!b)return;
+  b.classList.add('hidden');b.classList.remove('flex');
+}
+document.addEventListener('htmx:beforeRequest',e=>{
+  const p=(e.detail.pathInfo&&(e.detail.pathInfo.requestPath||e.detail.pathInfo.path))||'';
+  const path=p.split('?')[0];
+  const cfg=BUSY_PATHS[path];
+  if(cfg)busyShow(cfg.msg,!!cfg.cancel);
+});
+document.addEventListener('htmx:afterRequest',busyHide);
+document.addEventListener('htmx:sendError',busyHide);
+document.addEventListener('htmx:responseError',busyHide);
+function cancelGen(){
+  // 1) 서버에 취소 표시(진행 중 결과 폐기·대화 미저장) 2) 클라이언트 요청 중단 3) 오버레이 해제
+  try{fetch('/chat/cancel',{method:'POST'});}catch(e){}
+  const f=document.getElementById('chatform');
+  if(f&&window.htmx)htmx.trigger(f,'htmx:abort');
+  busyHide();
+}
 document.addEventListener('paste',e=>{
   if(e.target.id!=='msgbox')return;
   const items=(e.clipboardData||{}).items||[];

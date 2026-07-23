@@ -20,7 +20,7 @@
   <div id="messages" class="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-gray-50/30">{{ messages_html|safe }}</div>
   <div id="pasted" class="px-6"></div>
   <div class="px-6 pb-5">
-   <form id="chatform" hx-post="/chat" hx-target="#messages" hx-swap="beforeend" hx-on::after-request="afterSend()">
+   <form id="chatform" hx-post="/chat" hx-target="#messages" hx-swap="beforeend" hx-on::after-request="afterSend(event)">
     <div class="border border-gray-300 rounded-2xl px-3 py-2 flex items-end gap-2 shadow-sm focus-within:border-[#d6006a]">
      <textarea id="msgbox" name="message" rows="1" placeholder="질문을 입력하세요 (후속 질문 가능 · 이미지는 Ctrl+V)" class="flex-1 resize-none outline-none text-sm py-1.5 bg-transparent max-h-40"></textarea>
      <div class="htmx-indicator items-center text-[#d6006a] text-xs pb-2">생성 중…</div>
