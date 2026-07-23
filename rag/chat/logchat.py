@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 from .store import save_conversation
-from .engine import _history_messages, maybe_summarize
+from .engine import _history_messages, maybe_summarize, _is_followup
 from ..logs.generic import analyze_by_spec
 from ..logs.workflow import (summarize_analysis, gather_file_chunks,
                              resolve_command_names, extract_command_names,
@@ -188,8 +188,11 @@ def answer_with_log(pipeline, conv: dict, question: str) -> dict:
     schemas = _build_schemas(pipeline.retriever, files, names, observed,
                              target_len=_cmd_data_lens(parsed))
 
-    # 질문(+최근 대화)에서 언급된 명령/시각의 프레임만 골라 상세 디코드(온디맨드) → 큰 로그도 확장
-    hist = " ".join(m["content"] for m in conv.get("messages", [])[-4:] if m["role"] == "user")
+    # 질문에서 언급된 명령/시각의 프레임만 골라 상세 디코드(온디맨드) → 큰 로그도 확장.
+    # 최근 대화는 **후속 질문일 때만** 섞는다(새 질문까지 이전 명령에 매몰되는 것 방지).
+    hist = ""
+    if _is_followup(question):
+        hist = " ".join(m["content"] for m in conv.get("messages", [])[-4:] if m["role"] == "user")
     idxs = _select_indices(parsed, names, question + " " + hist)
     digest = summarize_analysis(parsed, cmd_names=names)     # 명령별 발생 시각(전체)
     findex = frame_index(parsed)                             # 전체 프레임 목록(#번호·시각·명령)

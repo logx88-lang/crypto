@@ -8,14 +8,18 @@
 """
 from __future__ import annotations
 
+import re
+
 from .store import save_conversation
 from ..generate.prompt import source_label, sources_list
 
 CHAT_SYSTEM = (
     "/no_think\n"
     "당신은 사내 문서 기반 **대화형** 질의응답 도우미입니다. 규칙:\n"
-    "1. [문서 발췌]와 앞선 대화 맥락에 근거해 한국어 공식체(합니다체)로 답합니다.\n"
-    "2. 후속 질문('해당', '그 기록', '위의 것' 등)은 **앞선 대화**를 참고해 해석합니다.\n"
+    "1. **현재 질문에 답하는 것이 최우선**입니다. [문서 발췌]에 근거해 한국어 공식체(합니다체)로 답합니다.\n"
+    "2. 후속 질문('해당', '그 기록', '위의 것' 등)만 **앞선 대화**를 참고해 해석합니다. 현재 질문이"
+    " 새로운 주제면 앞선 대화·이전 답변에 얽매이지 말고 [문서 발췌]만으로 새로 답하며,"
+    " 이전 답변 내용을 근거 없이 반복하지 않습니다.\n"
     "3. 각 주장 뒤에 근거 출처를 [번호]로 표기합니다(예: …입니다 [1]).\n"
     "4. 여러 항목·값을 나열할 때는 마크다운 표(| 열 | … |)로 정리합니다(화면에 표로 렌더됨).\n"
     "5. 답변에 도면·그림·화면 등 시각 자료를 보여주는 것이 도움이 되면, 그 위치에 [그림 번호] 를"
@@ -29,8 +33,26 @@ def _recent_user_turns(conv: dict, n: int = 1) -> str:
     return " ".join(us[-n:]) if us else ""
 
 
+# 후속 질문 판별 — 지시어/연결어가 있거나 아주 짧아 맥락 없이는 뜻이 안 서는 질문.
+# 새 주제 질문까지 이전 질문을 검색어에 섞으면 이전 주제 문서가 계속 검색되는 문제(매몰)를 막는다.
+_FOLLOWUP_RE = re.compile(
+    r"그럼|그러면|그것|그거|그건|그중|그 중|해당|위의|위 |앞의|앞서|방금|아까|이어서|추가로|"
+    r"더 자세|자세히|마저|나머지|둘 다|각각|이 명령|그 명령|그 필드|그 값|이 값|왜(요|\?|야)")
+
+
+def _is_followup(question: str) -> bool:
+    q = (question or "").strip()
+    if len(q) <= 12:                      # 짧은 질문("몇 바이트야?")은 맥락 의존일 가능성 큼
+        return True
+    return bool(_FOLLOWUP_RE.search(q))
+
+
 def _retrieval_query(conv: dict, question: str) -> str:
-    """검색용 질의 — 직전 사용자 질문을 앞에 붙여 후속 질문의 맥락을 살린다."""
+    """검색용 질의 — **후속 질문일 때만** 직전 사용자 질문을 붙여 맥락을 살린다.
+
+    새 주제 질문은 질문 단독으로 검색해 이전 주제 문서가 검색을 오염시키지 않게 한다."""
+    if not _is_followup(question):
+        return question
     prev = _recent_user_turns(conv, 1)
     return (prev + " " + question).strip() if prev else question
 
@@ -52,8 +74,6 @@ def _context_block(chunks: list) -> str:
         blocks.append(f"[{i}] ({label})\n{c.get('document', '').strip()}")
     return "\n\n".join(blocks) or "(관련 문서 없음)"
 
-
-import re
 
 # 문서 요약/개요/전체내용 류 질의 — 의미검색 top-k로는 못 잡으므로 문서 내용을 폭넓게 모아 준다.
 _OVERVIEW_RE = re.compile(
@@ -132,8 +152,9 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
         top = pipeline.reranker.rerank(question, cands, final_k=k) if cands else []
         label = "문서 발췌"
 
+    # 새 주제 질문이면 히스토리를 최소(2)로 줄여 이전 답변 앵커링(매몰)을 완화.
     messages = [{"role": "system", "content": CHAT_SYSTEM}]
-    messages += _history_messages(conv)
+    messages += _history_messages(conv, keep=6 if _is_followup(question) else 2)
     messages.append({"role": "user", "content":
                      f"[{label}]\n{_context_block(top)}\n\n[질문]\n{question}"})
     text = pipeline.llm.chat(messages)
