@@ -76,12 +76,50 @@ def _docs():
     return list_documents()
 
 
-# --- 답변 렌더(마크다운-라이트 + 인용 [N] 클릭 링크) -----------------------
+# --- 답변 렌더(마크다운-라이트 + 표 + 인용 [N] 클릭 링크) ------------------
+_SEP_ROW = re.compile(r"^[\s|:\-]+$")          # |:--:|---| 류 구분행
+
+
+def _table_html(rows: list) -> str:
+    """마크다운 표 행들(| a | b |)을 실제 <table> 로 렌더(구분행 제거, 1행=헤더)."""
+    parsed = []
+    for r in rows:
+        if _SEP_ROW.match(r):
+            continue
+        cells = [c.strip() for c in r.strip().strip("|").split("|")]
+        parsed.append(cells)
+    if not parsed:
+        return ""
+    ncol = max(len(r) for r in parsed)
+    out = ["<div class='overflow-x-auto my-2'><table class='text-sm border-collapse'>"]
+    for i, r in enumerate(parsed):
+        cells = r + [""] * (ncol - len(r))
+        tag = "th" if i == 0 else "td"
+        cls = ("bg-gray-100 font-semibold" if i == 0 else "") + \
+              " border border-gray-300 px-2 py-1 text-left align-top"
+        out.append("<tr>" + "".join(
+            f"<{tag} class='{cls}'>{_bold(html.escape(c))}</{tag}>" for c in cells) + "</tr>")
+    out.append("</table></div>")
+    return "".join(out)
+
+
 def _md_lite(text: str) -> str:
     lines = (text or "").split("\n")
-    out, in_ul = [], False
+    out, in_ul, tbl = [], False, []
+
+    def flush_tbl():
+        nonlocal tbl
+        if tbl:
+            out.append(_table_html(tbl)); tbl = []
+
     for ln in lines:
         s = ln.strip()
+        if s.startswith("|") and s.count("|") >= 2:      # 표 행 수집
+            if in_ul:
+                out.append("</ul>"); in_ul = False
+            tbl.append(s)
+            continue
+        flush_tbl()
         if s[:2] in ("- ", "• ", "* ") or s[:1] in ("•",) and len(s) > 1:
             if not in_ul:
                 out.append("<ul class='list-disc pl-5 space-y-0.5 my-1'>"); in_ul = True
@@ -91,6 +129,7 @@ def _md_lite(text: str) -> str:
                 out.append("</ul>"); in_ul = False
             if s:
                 out.append(f"<p class='my-1'>{_bold(html.escape(s))}</p>")
+    flush_tbl()
     if in_ul:
         out.append("</ul>")
     return "".join(out)
@@ -100,20 +139,56 @@ def _bold(s: str) -> str:
     return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
 
 
+_IMG_EXTS = ("png", "jpg", "jpeg", "bmp", "tiff", "tif")
+
+
+def _src_image_url(s: dict):
+    """근거 s를 이미지로 보여줄 수 있으면 /srcimg URL, 아니면 None (이미지 파일 or PDF 페이지)."""
+    rel = s.get("rel_path") or ""
+    ext = rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
+    loc = s.get("loc") or {}
+    if ext in _IMG_EXTS or (ext == "pdf" and loc.get("page_no")):
+        params = {"rel_path": rel}
+        if loc.get("page_no"):
+            params["page_no"] = str(loc["page_no"])
+        return "/srcimg?" + urllib.parse.urlencode(params)
+    return None
+
+
 def _link_citations(html_text: str, sources: list) -> str:
     smap = {int(s["n"]): s for s in sources if s.get("rel_path")}
 
-    def repl(m):
-        n = int(m.group(1))
+    def cite(n):
         s = smap.get(n)
         if not s:
-            return m.group(0)
+            return None
         params = {"rel_path": s["rel_path"]}
         params.update({k: str(v) for k, v in (s.get("loc") or {}).items()})
         url = "/preview?" + urllib.parse.urlencode(params)
         return (f"<sup class='cite' hx-get='{html.escape(url)}' hx-target='#modal-body' "
                 f"onclick='openModal()' title='원본 미리보기'>[{n}]</sup>")
-    return re.sub(r"\[(\d+)\]", repl, html_text)
+
+    def repl_img(m):
+        """[그림 N]/[이미지 N] → 해당 근거의 그림/페이지를 답변 안에 인라인 표시(클릭=원본 팝업)."""
+        n = int(m.group(1))
+        s = smap.get(n)
+        img = _src_image_url(s) if s else None
+        if not img:
+            return cite(n) or m.group(0)     # 이미지化 불가 → 일반 인용으로 강등
+        pv = {"rel_path": s["rel_path"]}
+        pv.update({k: str(v) for k, v in (s.get("loc") or {}).items()})
+        pv_url = "/preview?" + urllib.parse.urlencode(pv)
+        return (f"<span class='block my-2'><img src='{html.escape(img)}' "
+                f"class='max-w-md w-full border border-gray-200 rounded-lg cursor-zoom-in' "
+                f"hx-get='{html.escape(pv_url)}' hx-target='#modal-body' onclick='openModal()' "
+                f"title='근거 [{n}] 원본 보기'>"
+                f"<span class='block text-xs text-gray-400 mt-0.5'>그림: 근거 [{n}]</span></span>")
+
+    def repl_num(m):
+        return cite(int(m.group(1))) or m.group(0)
+
+    html_text = re.sub(r"\[(?:그림|이미지)\s*(\d+)\]", repl_img, html_text)
+    return re.sub(r"\[(\d+)\]", repl_num, html_text)
 
 
 def _msg_html(request, m: dict, idx: int, cid: str) -> str:
@@ -475,6 +550,34 @@ async def health(request):
     return PlainTextResponse("ok")             # 네이티브 클라이언트 도달성 확인용
 
 
+async def srcimg(request):
+    """근거 문서를 이미지로 서빙 — 이미지 파일은 원본, PDF는 해당 페이지를 PNG 렌더."""
+    sess = _sess(request)
+    if not sess:
+        return PlainTextResponse("세션 만료", 401)
+    from ..config import CONFIG
+    rel = request.query_params.get("rel_path", "")
+    path = os.path.normpath(os.path.join(CONFIG.data_dir, *rel.split("/")))
+    if not path.startswith(os.path.abspath(CONFIG.data_dir)) or not os.path.exists(path):
+        return PlainTextResponse("not found", 404)
+    ext = rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
+    if ext in _IMG_EXTS:
+        return FileResponse(path)
+    if ext == "pdf":
+        try:
+            import io
+            import pdfplumber
+            from starlette.responses import Response
+            with pdfplumber.open(path) as pdf:
+                pno = min(max(int(request.query_params.get("page_no") or 1), 1), len(pdf.pages))
+                img = pdf.pages[pno - 1].to_image(resolution=110)
+                buf = io.BytesIO(); img.save(buf, format="PNG")
+            return Response(buf.getvalue(), media_type="image/png")
+        except Exception as e:
+            return PlainTextResponse(f"render fail: {e}", 500)
+    return PlainTextResponse("unsupported", 415)
+
+
 async def preview(request):
     from .htmlpreview import render_file
     qp = dict(request.query_params)
@@ -505,6 +608,7 @@ app = Starlette(routes=[
     Route("/admin/reindex", admin_reindex, methods=["POST"]),
     Route("/admin/upload", admin_upload, methods=["POST"]),
     Route("/health", health),
+    Route("/srcimg", srcimg),
     Route("/preview", preview),
     Mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static"),
 ])

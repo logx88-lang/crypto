@@ -27,14 +27,19 @@ window.addEventListener('load',scrollBottom);
 function togglePanel(id){const el=document.getElementById(id);if(el)el.classList.toggle('hidden');}
 
 // 개선기록 폼: 클립보드 이미지 붙여넣기 → 숨은 필드(base64) + 미리보기 (HTTP에서도 동작)
+// 개선기록 모달이 열려 있으면 포커스 위치와 무관하게 Ctrl+V 이미지를 잡는다.
+// (기존 버그: 클릭 영역이 일반 div라 paste 이벤트가 안 옴 → 모달 열림 기준으로 전역 캡처)
 document.addEventListener('paste',e=>{
-  const zone=e.target.closest&&e.target.closest('#fbpaste');
-  if(!zone)return;
+  const form=document.getElementById('fbform');
+  const modal=document.getElementById('modal');
+  if(!form||!modal||modal.classList.contains('hidden'))return;   // 개선기록 모달 열림일 때만
+  if(e.target.id==='msgbox')return;                              // 채팅창은 자체 처리
   const items=(e.clipboardData||{}).items||[];
   for(const it of items){if(it.type&&it.type.startsWith('image/')){
     const blob=it.getAsFile();const fr=new FileReader();
     fr.onload=()=>{const h=document.getElementById('fbimg64');if(h)h.value=fr.result;
-      const p=document.getElementById('fbimgprev');if(p)p.innerHTML="<img src='"+fr.result+"' class='max-w-xs rounded border border-gray-200'>";};
-    fr.readAsDataURL(blob);e.preventDefault();
+      const p=document.getElementById('fbimgprev');if(p)p.innerHTML="<img src='"+fr.result+"' class='max-w-xs rounded border border-gray-200'>";
+      const z=document.getElementById('fbpaste');if(z)z.textContent='✅ 이미지가 첨부되었습니다 (다시 Ctrl+V로 교체 가능)';};
+    fr.readAsDataURL(blob);e.preventDefault();return;
   }}
 });
