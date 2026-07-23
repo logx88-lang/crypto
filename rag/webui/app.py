@@ -155,16 +155,28 @@ def _src_image_url(s: dict):
     return None
 
 
-def _link_citations(html_text: str, sources: list) -> str:
+# 실제 인용 판별: [N] 앞이 식별자 문자(영숫자·_·])면 내용(DATA[1], buf[0][1] 등)으로 보고 제외.
+# 인용은 문장 뒤에 "…입니다 [1]" 형태로 붙으므로 공백/한글/문장부호 뒤의 [N]만 링크한다.
+_CITE_RE = re.compile(r"(?<![A-Za-z0-9_\]])\[(\d{1,2})\]")
+_TBL_SPLIT = re.compile(r"(<div class='overflow-x-auto my-2'>.*?</table></div>)", re.DOTALL)
+
+
+def _pv_params(s: dict, mi=None) -> dict:
+    p = {"rel_path": s["rel_path"]}
+    p.update({k: str(v) for k, v in (s.get("loc") or {}).items()})
+    if mi is not None:                      # 메시지 인덱스+근거 번호 → 미리보기에서 발췌 강조
+        p.update({"mi": str(mi), "n": str(s["n"])})
+    return p
+
+
+def _link_citations(html_text: str, sources: list, mi=None) -> str:
     smap = {int(s["n"]): s for s in sources if s.get("rel_path")}
 
     def cite(n):
         s = smap.get(n)
         if not s:
             return None
-        params = {"rel_path": s["rel_path"]}
-        params.update({k: str(v) for k, v in (s.get("loc") or {}).items()})
-        url = "/preview?" + urllib.parse.urlencode(params)
+        url = "/preview?" + urllib.parse.urlencode(_pv_params(s, mi))
         return (f"<sup class='cite' hx-get='{html.escape(url)}' hx-target='#modal-body' "
                 f"onclick='openModal()' title='원본 미리보기'>[{n}]</sup>")
 
@@ -175,9 +187,7 @@ def _link_citations(html_text: str, sources: list) -> str:
         img = _src_image_url(s) if s else None
         if not img:
             return cite(n) or m.group(0)     # 이미지化 불가 → 일반 인용으로 강등
-        pv = {"rel_path": s["rel_path"]}
-        pv.update({k: str(v) for k, v in (s.get("loc") or {}).items()})
-        pv_url = "/preview?" + urllib.parse.urlencode(pv)
+        pv_url = "/preview?" + urllib.parse.urlencode(_pv_params(s, mi))
         return (f"<span class='block my-2'><img src='{html.escape(img)}' "
                 f"class='max-w-md w-full border border-gray-200 rounded-lg cursor-zoom-in' "
                 f"hx-get='{html.escape(pv_url)}' hx-target='#modal-body' onclick='openModal()' "
@@ -187,14 +197,19 @@ def _link_citations(html_text: str, sources: list) -> str:
     def repl_num(m):
         return cite(int(m.group(1))) or m.group(0)
 
-    html_text = re.sub(r"\[(?:그림|이미지)\s*(\d+)\]", repl_img, html_text)
-    return re.sub(r"\[(\d+)\]", repl_num, html_text)
+    def link_seg(seg):
+        seg = re.sub(r"\[(?:그림|이미지)\s*(\d+)\]", repl_img, seg)
+        return _CITE_RE.sub(repl_num, seg)
+
+    # 표 안의 [N]은 문서 내용(비트 번호 등)이므로 링크하지 않는다 — 표 블록은 건너뜀.
+    return "".join(seg if seg.startswith("<div class='overflow-x-auto") else link_seg(seg)
+                   for seg in _TBL_SPLIT.split(html_text))
 
 
 def _msg_html(request, m: dict, idx: int, cid: str) -> str:
     if m["role"] == "user":
         return templates.env.get_template("_user_msg.html").render(text=m["content"])
-    body = _link_citations(_md_lite(m["content"]), m.get("sources") or [])
+    body = _link_citations(_md_lite(m["content"]), m.get("sources") or [], mi=idx)
     return templates.env.get_template("_assistant_msg.html").render(
         body=body, sources=m.get("sources") or [], idx=idx, cid=cid,
         timing=m.get("timing"), answer_raw=m["content"], enc=urllib.parse.quote)
@@ -582,7 +597,21 @@ async def preview(request):
     from .htmlpreview import render_file
     qp = dict(request.query_params)
     rel_path = qp.pop("rel_path", "")
-    return HTMLResponse(render_file(rel_path, qp))
+    # mi(메시지 인덱스)+n(근거 번호)이 오면 그 근거의 발췌를 찾아 원본에서 해당 부분을 강조.
+    excerpt = None
+    mi, n = qp.pop("mi", None), qp.pop("n", None)
+    if mi is not None and n is not None:
+        sess = _sess(request)
+        if sess:
+            try:
+                msgs = _current_conv(sess).get("messages", [])
+                src = next(s for s in (msgs[int(mi)].get("sources") or [])
+                           if int(s.get("n", -1)) == int(n))
+                excerpt = src.get("excerpt")
+                rel_path = rel_path or src.get("rel_path", "")
+            except Exception:
+                pass
+    return HTMLResponse(render_file(rel_path, qp, excerpt=excerpt))
 
 
 app = Starlette(routes=[

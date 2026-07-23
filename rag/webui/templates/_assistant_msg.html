@@ -7,7 +7,7 @@
    <button hx-get="/feedback/form?idx={{ idx }}" hx-target="#modal-body" onclick="openModal()" class="hover:text-[#d6006a]" title="이 답변에 문제가 있으면 기록(반출용)">🚩 개선 기록</button>
    {% if sources %}<span class="ml-1">출처:</span>{% endif %}
    {% for s in sources %}{% if s.rel_path %}
-   <button hx-get="/preview?rel_path={{ enc(s.rel_path) }}{% for k,v in (s.loc or {}).items() %}&{{k}}={{ enc(v|string) }}{% endfor %}" hx-target="#modal-body" onclick="openModal()" class="px-2 py-1 rounded-md border border-gray-200 hover:border-[#d6006a] hover:text-[#d6006a] bg-white">[{{ s.n }}] {{ (s.rel_path.split('/')|last)[:22] }}</button>
+   <button hx-get="/preview?rel_path={{ enc(s.rel_path) }}{% for k,v in (s.loc or {}).items() %}&{{k}}={{ enc(v|string) }}{% endfor %}&mi={{ idx }}&n={{ s.n }}" hx-target="#modal-body" onclick="openModal()" class="px-2 py-1 rounded-md border border-gray-200 hover:border-[#d6006a] hover:text-[#d6006a] bg-white">[{{ s.n }}] {{ (s.rel_path.split('/')|last)[:22] }}</button>
    {% endif %}{% endfor %}
    {% if timing %}<span class="ml-auto text-gray-300" title="단계별 소요 시간">⏱ {{ timing }}</span>{% endif %}
   </div>
