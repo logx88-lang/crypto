@@ -156,10 +156,14 @@ def _src_image_url(s: dict):
     return None
 
 
-# 실제 인용 판별: [N] 앞이 식별자 문자(영숫자·_·])면 내용(DATA[1], buf[0][1] 등)으로 보고 제외.
-# 인용은 문장 뒤에 "…입니다 [1]" 형태로 붙으므로 공백/한글/문장부호 뒤의 [N]만 링크한다.
-_CITE_RE = re.compile(r"(?<![A-Za-z0-9_\]])\[(\d{1,2})\]")
+# 실제 인용 판별: [N] 앞이 식별자 문자(영숫자·_)면 내용(DATA[1], buf[0] 등)으로 보고 제외.
+# 인용은 "…입니다 [1]" 또는 "…입니다 [1][2][3]"처럼 붙으므로, 연속된 [N][M] 묶음(run)을
+# 하나로 잡아 각 번호를 링크한다(낱개 lookbehind 방식은 [2]부터 앞의 ']' 때문에 놓침).
+_CITE_RUN = re.compile(r"(?<![A-Za-z0-9_\]])((?:\[\d{1,2}\])+)")
+_CITE_ONE = re.compile(r"\[(\d{1,2})\]")
 _TBL_SPLIT = re.compile(r"(<div class='overflow-x-auto my-2'>.*?</table></div>)", re.DOTALL)
+# 표 셀 전체가 인용만으로 된 경우(출처 열: "[4]", "[4], [5]") — 문서 내용 [N]과 구분해 링크
+_TBL_CITE_CELL = re.compile(r"(>)\s*((?:\[\d{1,2}\])(?:[,\s]*\[\d{1,2}\])*)\s*(<)")
 
 
 def _pv_params(s: dict, mi=None) -> dict:
@@ -195,15 +199,25 @@ def _link_citations(html_text: str, sources: list, mi=None) -> str:
                 f"title='근거 [{n}] 원본 보기'>"
                 f"<span class='block text-xs text-gray-400 mt-0.5'>그림: 근거 [{n}]</span></span>")
 
-    def repl_num(m):
+    def repl_one(m):
         return cite(int(m.group(1))) or m.group(0)
+
+    def repl_run(m):                        # 연속 인용 [1][2][3] → 각각 링크
+        return _CITE_ONE.sub(repl_one, m.group(1))
 
     def link_seg(seg):
         seg = re.sub(r"\[(?:그림|이미지)\s*(\d+)\]", repl_img, seg)
-        return _CITE_RE.sub(repl_num, seg)
+        return _CITE_RUN.sub(repl_run, seg)
 
-    # 표 안의 [N]은 문서 내용(비트 번호 등)이므로 링크하지 않는다 — 표 블록은 건너뜀.
-    return "".join(seg if seg.startswith("<div class='overflow-x-auto") else link_seg(seg)
+    def link_table_seg(seg):
+        # 표 안은 원칙적으로 문서 내용 [N](비트 번호 등)이라 미링크하되,
+        # 셀 내용 '전체'가 인용뿐인 셀(출처 열)만 예외로 링크한다.
+        def repl_cell(m):
+            return m.group(1) + _CITE_ONE.sub(repl_one, m.group(2)) + m.group(3)
+        return _TBL_CITE_CELL.sub(repl_cell, seg)
+
+    return "".join(link_table_seg(seg) if seg.startswith("<div class='overflow-x-auto")
+                   else link_seg(seg)
                    for seg in _TBL_SPLIT.split(html_text))
 
 
@@ -607,15 +621,18 @@ async def srcimg(request):
     if ext in _IMG_EXTS:
         return FileResponse(path)
     if ext == "pdf":
-        try:
+        def _render():
             import io
             import pdfplumber
-            from starlette.responses import Response
             with pdfplumber.open(path) as pdf:
                 pno = min(max(int(request.query_params.get("page_no") or 1), 1), len(pdf.pages))
                 img = pdf.pages[pno - 1].to_image(resolution=110)
                 buf = io.BytesIO(); img.save(buf, format="PNG")
-            return Response(buf.getvalue(), media_type="image/png")
+            return buf.getvalue()
+        try:
+            from starlette.responses import Response
+            data = await run_in_threadpool(_render)   # PDF 렌더가 루프를 막지 않게
+            return Response(data, media_type="image/png")
         except Exception as e:
             return PlainTextResponse(f"render fail: {e}", 500)
     return PlainTextResponse("unsupported", 415)
@@ -639,7 +656,8 @@ async def preview(request):
                 rel_path = rel_path or src.get("rel_path", "")
             except Exception:
                 pass
-    return HTMLResponse(render_file(rel_path, qp, excerpt=excerpt))
+    # 스레드풀: PDF 렌더·.doc 변환(Word COM) 등 블로킹 작업이 서버 루프를 막지 않게
+    return HTMLResponse(await run_in_threadpool(render_file, rel_path, qp, excerpt))
 
 
 app = Starlette(routes=[

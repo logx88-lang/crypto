@@ -126,6 +126,15 @@ def _convert_doc_to_docx(path: str):
     # 1) MS Word COM (Windows + Word 설치 시)
     try:
         import win32com.client  # type: ignore
+        # 웹서버 스레드풀/Streamlit 스레드에서 COM 사용 시 스레드별 초기화 필수 —
+        # 없으면 'CoInitialize has not been called' 로 Word가 있어도 실패한다.
+        _com = None
+        try:
+            import pythoncom  # type: ignore
+            pythoncom.CoInitialize()
+            _com = pythoncom
+        except Exception:
+            pass
         try:
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
@@ -141,8 +150,16 @@ def _convert_doc_to_docx(path: str):
             reasons.append("Word 변환 결과 파일 미생성")
         except Exception as e:
             reasons.append(f"Word COM 실패({type(e).__name__}): {e}")
-    except ImportError:
-        reasons.append("pywin32(win32com) 미설치")
+        finally:
+            if _com is not None:
+                try:
+                    _com.CoUninitialize()
+                except Exception:
+                    pass
+    except ImportError as e:
+        # 원인 그대로 노출(진짜 미설치 vs DLL 로드 실패 구분). DLL 실패면
+        # .venv\Scripts\pywin32_postinstall.py -install 로 해결되는 경우가 많다.
+        reasons.append(f"pywin32(win32com) 임포트 실패: {e}")
     # 2) LibreOffice (soffice --headless)
     import subprocess
     outdir = os.path.dirname(out)
