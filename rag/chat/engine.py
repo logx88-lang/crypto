@@ -20,7 +20,9 @@ CHAT_SYSTEM = (
     "2. 후속 질문('해당', '그 기록', '위의 것' 등)만 **앞선 대화**를 참고해 해석합니다. 현재 질문이"
     " 새로운 주제면 앞선 대화·이전 답변에 얽매이지 말고 [문서 발췌]만으로 새로 답하며,"
     " 이전 답변 내용을 근거 없이 반복하지 않습니다.\n"
-    "3. 각 주장 뒤에 근거 출처를 [번호]로 표기합니다(예: …입니다 [1]).\n"
+    "3. **[문서 발췌]에 실제로 적힌 내용만** 답에 씁니다 — 일반 상식·추정·훈련 지식으로 채우지"
+    " 않습니다. 각 주장 뒤에 근거 출처를 [번호]로 표기합니다(예: …입니다 [1])."
+    " 출처를 표기할 수 없는 문장은 쓰지 않습니다.\n"
     "4. 여러 항목·값을 나열할 때는 마크다운 표(| 열 | … |)로 정리합니다(화면에 표로 렌더됨).\n"
     "   문서의 표 내용을 전달할 때는 **원본 그대로** 옮깁니다 — 행 생략·값 변경·임의 재구성 금지."
     " '모든/전체/목록' 요청이면 표의 모든 행을 빠짐없이 나열합니다.\n"
@@ -85,6 +87,18 @@ _OVERVIEW_RE = re.compile(
 
 def _is_overview(question: str) -> bool:
     return bool(_OVERVIEW_RE.search(question or ""))
+
+
+# 근거 표기 검증(할루시네이션 조임) — 답변에 유효한 [N] 인용이 있는지 결정적으로 확인.
+_REFUSAL_RE = re.compile(r"근거를 찾지 못|근거가 없|문서에 없|발췌에 없|확인되지 않|알 수 없")
+
+
+def _grounded(text: str, n_src: int) -> bool:
+    """답변이 유효한 출처 표기([1..n_src])를 하나라도 담고 있으면 True."""
+    if n_src <= 0:
+        return True
+    cites = {int(m) for m in re.findall(r"\[(\d{1,2})\]", text or "")}
+    return any(1 <= c <= n_src for c in cites)
 
 
 def _merge_table_parts(parts: list) -> str:
@@ -227,6 +241,23 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
         messages[-1]["content"] = (
             f"[문서 발췌]\n{_context_block(top[:max(1, len(top)//2)])}\n\n[질문]\n{question}")
         text = pipeline.llm.chat(messages)
+
+    # 할루시네이션 조임: 출처 표기 [N]이 전혀 없는 답변(거절 답변 제외)은 인용 강제로 1회
+    # 재작성시키고, 그래도 근거 표기가 없으면 '근거 미표기' 플래그를 남겨 UI에 경고 표시.
+    ungrounded = False
+    if (text or "").strip() and top and not _grounded(text, len(top)) \
+            and not _REFUSAL_RE.search(text):
+        retry = messages + [
+            {"role": "assistant", "content": text},
+            {"role": "user", "content":
+             "위 답변에는 출처 표기가 없습니다. [문서 발췌]에 실제로 있는 내용만 남기고 "
+             "각 문장 뒤에 [번호]를 붙여 다시 작성하십시오. 발췌로 뒷받침할 수 없는 내용은 "
+             "삭제하고, 남는 내용이 없으면 '제공된 문서에서 근거를 찾지 못했습니다'라고만 답하십시오."},
+        ]
+        text2 = (pipeline.llm.chat(retry) or "").strip()
+        if text2:
+            text = text2
+        ungrounded = not _grounded(text, len(top)) and not _REFUSAL_RE.search(text)
     t_llm = time.perf_counter() - t2
     timing = (f"검색 {t_search:.1f}s"
               + (f" · 리랭크 {t_rerank:.1f}s" if not overview else "")
@@ -245,8 +276,10 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
                     if m.get(k)},
         })
     conv["messages"].append({"role": "user", "content": question})
-    conv["messages"].append({"role": "assistant", "content": text, "sources": src_full,
-                             "timing": timing})
+    amsg = {"role": "assistant", "content": text, "sources": src_full, "timing": timing}
+    if ungrounded:
+        amsg["ungrounded"] = True          # UI 경고 배너용(근거 표기 없는 답변)
+    conv["messages"].append(amsg)
     if conv.get("title", "새 대화") in ("새 대화", "") and len([m for m in conv["messages"]
                                                           if m["role"] == "user"]) == 1:
         conv["title"] = question[:30]      # 첫 질문을 대화 제목으로

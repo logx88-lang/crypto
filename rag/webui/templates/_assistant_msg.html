@@ -2,6 +2,7 @@
  <div class="w-8 h-8 rounded-full bg-[#fdecef] flex items-center justify-center shrink-0">🤖</div>
  <div class="max-w-2xl w-full min-w-0">
   <div id="ans-{{ idx }}" class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed shadow-sm break-words">{{ body|safe }}</div>
+  {% if ungrounded %}<div class="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">⚠️ 이 답변에는 문서 근거 표기([번호])가 없습니다 — 모델 지식으로 답했을 수 있으니 출처 원문으로 확인하세요.</div>{% endif %}
   <div class="flex items-center gap-2 mt-2 text-xs text-gray-400 flex-wrap">
    <button onclick="copyAnswer('ans-{{ idx }}',this)" class="hover:text-gray-700">📋 복사</button>
    <button hx-get="/feedback/form?idx={{ idx }}" hx-target="#modal-body" onclick="openModal()" class="hover:text-[#d6006a]" title="이 답변에 문제가 있으면 기록(반출용)">🚩 개선 기록</button>
