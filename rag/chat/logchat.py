@@ -38,11 +38,21 @@ LOG_SYSTEM = (
     "- [전체 프레임 목록]: 로그의 모든 프레임(#번호·시각·명령). '세 번째', '11:25 것' 같은 지목은"
     " 이 목록의 번호·시각으로 찾습니다.\n"
     "- [질문 관련 프레임 필드 디코드]: 질문에서 지목된 프레임을 명세 필드표대로 잘라 놓은 것."
-    " '이 명령 파싱/해석해줘'는 그 프레임의 필드를 '이름 (타입,길이) : 값' 형식으로 제시합니다"
-    " (예: 거래일시 (ASCII,14) : … / SAM ID (ASCII,16) : … / 카드 잔액 (HEX,4) : …).\n"
+    " 프레임 내용 질문은 이 디코드 값을 그대로 제시합니다.\n"
     "- 특정 필드값(카드번호 등)으로 필터할 때도 이 디코드에서 그 값인 프레임을 고릅니다.\n"
-    "- 앞선 대화의 '해당/그/위의 것'은 대화 맥락으로 해석합니다. 자료에 없으면 없다고 답합니다."
+    "- 앞선 대화의 '해당/그/위의 것'은 대화 맥락으로 해석합니다. 자료에 없으면 없다고 답합니다.\n"
+    "금지 사항(사족 금지):\n"
+    "1. 명령·필드 이름(CR, RC, MLDA 등)은 자료에 적힌 그대로만 쓰고, **약어의 원어·의미를"
+    " 추측해 풀어 쓰지 마십시오**(예: 'RC=Rail Charge' 같은 임의 해석 금지). 자료에 정의가"
+    " 없으면 이름 그대로 둡니다.\n"
+    "2. **요청받은 것만** 답합니다. 묻지 않은 파생 계산(합계·수수료 환산·비율 계산), 화폐·단위"
+    " 추측, 부가 해설·권고·요약을 덧붙이지 마십시오.\n"
+    "3. 값은 디코드에 있는 그대로 옮깁니다 — 반올림·변환·재해석 금지."
 )
+
+# '그냥 파싱해줘' 류 요청 — LLM을 거치지 않고 결정적 디코드 결과를 그대로 표로 반환
+# (소형 모델이 약어 임의 해석·파생 계산 사족을 붙이는 것을 원천 차단 + 즉답).
+_PARSE_RE = re.compile(r"파싱|디코드|필드(로|별|\s*단위)?\s*(잘라|분해|나눠|보여|정리|해석)|전문\s*(분해|해석)")
 
 
 def attach_log(conv: dict, log_text: str, files: list, retriever, llm,
@@ -151,6 +161,16 @@ def _select_indices(parsed: dict, cmd_names: dict, query: str) -> list:
     q_kor = _kor(q)
     times = [t.replace("시", ":").replace(" ", "") for t in re.findall(r"\d{1,2}\s*[:시]\s*\d{2}", q)]
     sel = set()
+    # 프레임 번호 직접 지목: '#3', '3번째', '세 번째' → 해당 인덱스
+    _ORD = {"첫": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4,
+            "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10}
+    for m in re.findall(r"#(\d+)|(\d+)\s*번째", q):
+        n = int(m[0] or m[1])
+        if 1 <= n <= len(frames):
+            sel.add(n - 1)
+    for w, n in _ORD.items():
+        if re.search(rf"{w}\s*번째", q) and n <= len(frames):
+            sel.add(n - 1)
     for i, fr in enumerate(frames):
         cid = _cmd_id(fr)
         nk = _kor(cmd_names.get(cid, ""))
@@ -188,6 +208,46 @@ def _decoded_block(parsed: dict, cmd_names: dict, schemas: dict,
     return "\n".join(lines) or "(관련 프레임 없음)"
 
 
+def _parse_answer(parsed: dict, cmd_names: dict, schemas: dict, idxs: list,
+                  cap: int = 8) -> str:
+    """지목된 프레임들의 결정적 파싱 결과를 마크다운 표로. LLM 미사용(사족·추측 0)."""
+    frames = parsed.get("frames", [])
+    out = []
+    for k, idx in enumerate(idxs):
+        if k >= cap:
+            out.append(f"… 관련 프레임 {len(idxs)}개 중 {cap}개만 표시했습니다. "
+                       "나머지는 시각/번호로 지목해 다시 요청하십시오.")
+            break
+        if idx >= len(frames):
+            continue
+        fr = frames[idx]
+        cid = _cmd_id(fr)
+        nm = cmd_names.get(cid, "")
+        out.append(f"**#{idx + 1} {fr.get('time', '')} CMD {_cmd_disp(fr)}"
+                   + (f" — {nm}" if nm else "") + "**")
+        sch = schemas.get(cid)
+        data = fr.get("data")
+        if sch and data:
+            decoded = decode_data(data, sch)
+            out.append("| 필드 | 타입·길이 | HEX | 해석값 |")
+            out.append("|---|---|---|---|")
+            for d in decoded:
+                shown = d["value"] if d["type"] in ("ASCII", "CHAR", "BCD") else ""
+                out.append(f"| {d['name']} | {d['type']}·{d['len']} | {d['hex']} | {shown} |")
+            used = sum(f["len"] for f in sch[:len(decoded)])
+            if used < len(data):
+                rest = " ".join(f"{b:02X}" for b in data[used:])
+                out.append(f"잔여 바이트(필드표 범위 밖): {rest}")
+        elif data:
+            out.append("(이 명령의 필드표를 명세에서 찾지 못해 원시 DATA만 표시합니다)")
+            out.append("DATA: " + " ".join(f"{b:02X}" for b in data))
+        else:
+            out.append("(DATA 없음)")
+        out.append("")
+    out.append("※ 명세 필드표 기준 결정적 파싱 결과입니다(모델 해석 미개입).")
+    return "\n".join(out)
+
+
 def answer_with_log(pipeline, conv: dict, question: str) -> dict:
     log = conv["log"]
     parsed, names, files = log["parsed"], log["cmd_names"], log["files"]
@@ -205,6 +265,16 @@ def answer_with_log(pipeline, conv: dict, question: str) -> dict:
     if _is_followup(question):
         hist = " ".join(m["content"] for m in conv.get("messages", [])[-4:] if m["role"] == "user")
     idxs = _select_indices(parsed, names, question + " " + hist)
+
+    # '파싱해줘' 요청 + 대상 프레임 특정됨 → LLM 없이 결정적 디코드를 그대로 답변.
+    # (모델이 약어를 임의 해석하거나 수수료 환산 같은 사족을 붙이는 것 원천 차단 + 즉답)
+    if _PARSE_RE.search(question) and idxs:
+        text = _parse_answer(parsed, names, schemas, idxs)
+        conv["messages"].append({"role": "user", "content": question})
+        conv["messages"].append({"role": "assistant", "content": text})
+        save_conversation(conv)
+        return {"answer": text, "sources": [], "contexts": []}
+
     digest = summarize_analysis(parsed, cmd_names=names)     # 명령별 발생 시각(전체)
     findex = frame_index(parsed)                             # 전체 프레임 목록(#번호·시각·명령)
     decoded = _decoded_block(parsed, names, schemas, idxs)   # 관련 프레임 필드 디코드
