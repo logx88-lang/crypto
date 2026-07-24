@@ -229,11 +229,19 @@ def _parse_answer(parsed: dict, cmd_names: dict, schemas: dict, idxs: list,
         data = fr.get("data")
         if sch and data:
             decoded = decode_data(data, sch)
-            out.append("| 필드 | 타입·길이 | HEX | 해석값 |")
-            out.append("|---|---|---|---|")
+            out.append("| 필드 | 의미(문서 기준) | 타입·길이 | 해석값 | HEX |")
+            out.append("|---|---|---|---|---|")
             for d in decoded:
-                shown = d["value"] if d["type"] in ("ASCII", "CHAR", "BCD") else ""
-                out.append(f"| {d['name']} | {d['type']}·{d['len']} | {d['hex']} | {shown} |")
+                # 해석값: 숫자로 볼 수 있으면 숫자(선행 0 제거: '0002000'→2000),
+                # 아니면 문자값. 의미는 명세 필드표의 설명 열 그대로(모델 추측 아님).
+                if d.get("num") is not None:
+                    shown = str(d["num"])
+                elif d["type"] in ("ASCII", "CHAR", "BCD"):
+                    shown = d["value"]
+                else:
+                    shown = ""
+                out.append(f"| {d['name']} | {d.get('desc') or ''} | "
+                           f"{d['type']}·{d['len']} | {shown} | {d['hex']} |")
             used = sum(f["len"] for f in sch[:len(decoded)])
             if used < len(data):
                 rest = " ".join(f"{b:02X}" for b in data[used:])
