@@ -33,8 +33,10 @@ def parse_field_schema(text: str) -> list:
     return out
 
 
-def _numeric(t: str, seg: list, val: str):
-    """값의 기계적 숫자 해석(창작 없음): ASCII 숫자열·BCD → int, HEX/BIN/BYTE → big-endian int."""
+def _numeric(t: str, seg: list, val: str, desc: str = ""):
+    """값의 기계적 숫자 해석(창작 없음): ASCII 숫자열·BCD → int, HEX/BIN/BYTE → int.
+
+    엔디안은 명세 설명(desc)에 'Little' 표기가 있으면 little, 아니면 big."""
     try:
         if t in ("ASCII", "CHAR"):
             v = val.strip()
@@ -42,7 +44,8 @@ def _numeric(t: str, seg: list, val: str):
         if t == "BCD":
             return int(val) if val.isdigit() else None
         if seg:                                          # HEX/BIN/BYTE → 10진수
-            return int.from_bytes(bytes(seg), "big")
+            order = "little" if "LITTLE" in (desc or "").upper() else "big"
+            return int.from_bytes(bytes(seg), order)
     except Exception:
         pass
     return None
@@ -69,7 +72,7 @@ def decode_data(data, schema: list) -> list:
             val = hx
         out.append({"name": f["name"], "type": t, "len": f["len"],
                     "desc": f.get("desc", ""), "hex": hx, "value": val,
-                    "num": _numeric(t, seg, val)})
+                    "num": _numeric(t, seg, val, f.get("desc", ""))})
         if i >= len(data):
             break
     return out

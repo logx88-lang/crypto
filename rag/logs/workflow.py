@@ -89,6 +89,13 @@ def _pick_command_names(analysis: dict, spec_chunks: list) -> dict:
     return extract_command_names("\n".join(c.get("document", "") for c in spec_chunks))
 
 
+def _chroma_where(w: dict):
+    """Chroma는 최상위 키가 2개 이상이면 $and 를 요구한다 — 안전하게 래핑."""
+    if not w or len(w) <= 1:
+        return w or None
+    return {"$and": [{k: v} for k, v in w.items()]}
+
+
 def resolve_command_names(retriever, analysis: dict, where: dict = None) -> dict:
     """로그에서 관측된 명령을 '정의하는' 명령표를 검색으로 찾아 ID→이름 매핑 반환.
 
@@ -101,6 +108,7 @@ def resolve_command_names(retriever, analysis: dict, where: dict = None) -> dict
     w = {"doc_type": "protocol_spec"}
     if where:
         w.update(where)
+    w = _chroma_where(w)
     # 관측된 명령 토큰(SD/CD… 또는 0x12…)을 질의에 넣어 그 명령을 정의한 표를 정확히 집는다.
     toks = " ".join(("0x" + k[2:]) if k.startswith("0X") else k for k in sorted(observed))
     query = (toks + " 명령 코드 목록 명령어 일람 command code list command table "
@@ -153,7 +161,7 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
         where["rel_path"] = {"$in": list(files)}
     elif folders:
         where["folder"] = {"$in": list(folders)}
-    raw = retriever.search(query, top_k=max(top_k * 6, 30), where=where)
+    raw = retriever.search(query, top_k=max(top_k * 6, 30), where=_chroma_where(where))
 
     def _doc(c):
         m = c.get("metadata", {})
@@ -191,6 +199,7 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
     if target_doc and not has_primary_cmd:
         cw = dict(where)
         cw["source_file"] = target_doc
+        cw = _chroma_where(cw)
         try:
             extra = retriever.search(
                 "명령 코드 목록 명령어 일람 명령 정의 command code list command table "

@@ -71,9 +71,10 @@ def attach_log(conv: dict, log_text: str, files: list, retriever, llm,
             names.setdefault(k, v)
     # 스키마(명령별 필드표)는 로그·명세가 고정이면 불변 → 첨부 시 1회 계산해 캐시.
     # (기존: 질문마다 전체 청크 재조회+정규식 재파싱 → 큰 명세에서 턴마다 수 초 낭비)
-    schemas = _build_schemas(retriever, list(files), names,
-                             _observed_cmd_keys(parsed),
-                             target_len=_cmd_data_lens(parsed))
+    schemas, disp = _build_schemas(retriever, list(files), names,
+                                   _observed_cmd_keys(parsed),
+                                   target_len=_cmd_data_lens(parsed))
+    names.update(disp)   # 전문 선언 섹션 기준 표시 이름으로 교정(동일 코드 중복 정의 문서 대응)
     conv["log"] = {"parsed": parsed, "cmd_names": names, "files": list(files),
                    "name": name, "schemas": schemas}
     save_conversation(conv)
@@ -104,36 +105,69 @@ def _cmd_data_lens(parsed: dict) -> dict:
     return {c: cnt.most_common(1)[0][0] for c, cnt in per.items()}
 
 
-def _build_schemas(retriever, files, cmd_names: dict, observed, target_len: dict = None) -> dict:
-    """관측 명령별 필드표를 {cmd_id: [fields]} 로.
+# 전문 헤더 표의 명령 선언 행: "| RC | 0x0081(129) |" → (토큰, 선언 데이터길이)
+_DECL_RE = re.compile(r"\|\s*([A-Z][A-Z0-9])\s*\|\s*0x([0-9A-Fa-f]{1,4})\s*(?:\((\d+)\))?")
 
-    의미검색은 recall이 나쁘므로 선택 파일의 '전체 청크'를 가져와 section_path 에 그 명령
-    이름이 있는(= 그 명령의 전문) 필드표를 결정적으로 찾는다. 한 명령에 여러 전문표(요청/응답/타사)가
-    있으면 그 명령 프레임의 DATA 길이에 필드 합계 길이가 가장 근접한 표를 채택(실제 데이터에 정렬).
+
+def _build_schemas(retriever, files, cmd_names: dict, observed, target_len: dict = None):
+    """관측 명령별 필드표 → ({cmd_id: [fields]}, {cmd_id: 표시이름(섹션)}).
+
+    1순위(결정적): 명세의 전문 헤더 표에 그 명령이 **선언된 섹션**("| RC | 0x0081(129) |")들을
+    찾아, 그 섹션들의 상세 필드표 중 프레임 DATA 길이에 합계가 가장 근접한 표를 채택.
+    같은 명령 코드가 여러 곳에 정의된 문서(예: Card 충전 응답 RC vs 레일플러스 RC)에서도
+    실제 데이터 길이로 올바른 전문을 고른다. 채택 섹션은 표시 이름으로도 반환(이름 오염 교정).
+    2순위(폴백): 기존 방식 — cmd_names 이름이 section_path 에 있는 필드표.
     """
     docs, metas = _file_chunks(retriever, files)
     target_len = target_len or {}
-    schemas = {}
+    # 섹션별 자료 수집: 선언된 명령 토큰들 / 상세 필드표들
+    sec_decl: dict = {}      # section_path -> {token: 선언길이|None}
+    sec_tables: dict = {}    # section_path -> [schema]
+    for d, m in zip(docs, metas):
+        sp = m.get("section_path", "") or m.get("section", "") or ""
+        if not sp:
+            continue
+        for mm in _DECL_RE.finditer(d or ""):
+            tok = mm.group(1).upper()
+            dl = int(mm.group(3)) if mm.group(3) else int(mm.group(2), 16)
+            sec_decl.setdefault(sp, {})[tok] = dl
+        sch = parse_field_schema(d)
+        if len(sch) >= 2:
+            sec_tables.setdefault(sp, []).append(sch)
+
+    schemas, disp = {}, {}
     for cid in observed:
+        tl = target_len.get(cid)
+        # 1순위: 명령이 선언된 섹션들의 필드표 중 길이 최적합
+        cands = []               # (schema, section_path, 선언길이)
+        for sp, decl in sec_decl.items():
+            if cid in decl:
+                for sch in sec_tables.get(sp, []):
+                    cands.append((sch, sp, decl[cid]))
+        if cands:
+            def fit(c):
+                sch, _sp, dl = c
+                ref = tl if tl is not None else dl
+                return abs(sum(f["len"] for f in sch) - ref) if ref is not None else -len(sch)
+            best = min(cands, key=fit)
+            schemas[cid] = best[0]
+            disp[cid] = best[1].split(">", 1)[-1].strip() if ">" in best[1] else best[1]
+            continue
+        # 2순위(폴백): 이름 → section_path 매칭(기존 방식)
         nmkey = (cmd_names.get(cid, "") or "").replace(" ", "")
         if not nmkey:
             continue
-        cands = []
-        for d, m in zip(docs, metas):
-            sp = (m.get("section_path", "") or "").replace(" ", "")
-            if nmkey not in sp:
-                continue
-            sch = parse_field_schema(d)
-            if len(sch) >= 2:
-                cands.append(sch)
-        if not cands:
+        fcands = []
+        for sp, tbls in sec_tables.items():
+            if nmkey in sp.replace(" ", ""):
+                fcands.extend(tbls)
+        if not fcands:
             continue
-        tl = target_len.get(cid)
         if tl:
-            schemas[cid] = min(cands, key=lambda s: abs(sum(f["len"] for f in s) - tl))
+            schemas[cid] = min(fcands, key=lambda s: abs(sum(f["len"] for f in s) - tl))
         else:
-            schemas[cid] = max(cands, key=len)
-    return schemas
+            schemas[cid] = max(fcands, key=len)
+    return schemas, disp
 
 
 def frame_index(parsed: dict) -> str:
@@ -233,8 +267,11 @@ def _parse_answer(parsed: dict, cmd_names: dict, schemas: dict, idxs: list,
             out.append("|---|---|---|---|---|")
             for d in decoded:
                 # 해석값: 숫자로 볼 수 있으면 숫자(선행 0 제거: '0002000'→2000),
-                # 아니면 문자값. 의미는 명세 필드표의 설명 열 그대로(모델 추측 아님).
-                if d.get("num") is not None:
+                # 단 코드성 값(설명에 '002 : 정상충전'처럼 열거된 경우)은 원문 유지.
+                # 의미는 명세 필드표의 설명 열 그대로(모델 추측 아님).
+                raw = d["value"].strip()
+                is_code = raw and raw in (d.get("desc") or "")
+                if d.get("num") is not None and not is_code:
                     shown = str(d["num"])
                 elif d["type"] in ("ASCII", "CHAR", "BCD"):
                     shown = d["value"]
@@ -261,18 +298,20 @@ def answer_with_log(pipeline, conv: dict, question: str) -> dict:
     parsed, names, files = log["parsed"], log["cmd_names"], log["files"]
     schemas = log.get("schemas")
     if not schemas:                      # 구버전 첨부(캐시 없음) 호환 → 1회 계산 후 저장
-        schemas = _build_schemas(pipeline.retriever, files, names,
-                                 _observed_cmd_keys(parsed),
-                                 target_len=_cmd_data_lens(parsed))
+        schemas, disp = _build_schemas(pipeline.retriever, files, names,
+                                       _observed_cmd_keys(parsed),
+                                       target_len=_cmd_data_lens(parsed))
+        names.update(disp)
         log["schemas"] = schemas
         save_conversation(conv)
 
     # 질문에서 언급된 명령/시각의 프레임만 골라 상세 디코드(온디맨드) → 큰 로그도 확장.
     # 최근 대화는 **후속 질문일 때만** 섞는다(새 질문까지 이전 명령에 매몰되는 것 방지).
-    hist = ""
-    if _is_followup(question):
+    idxs = _select_indices(parsed, names, question)
+    if not idxs and _is_followup(question):
+        # 현재 질문만으로 특정 안 될 때만 최근 대화를 참고(이전 명령이 섞여 같이 파싱되는 것 방지)
         hist = " ".join(m["content"] for m in conv.get("messages", [])[-4:] if m["role"] == "user")
-    idxs = _select_indices(parsed, names, question + " " + hist)
+        idxs = _select_indices(parsed, names, question + " " + hist)
 
     # '파싱해줘' 요청 + 대상 프레임 특정됨 → LLM 없이 결정적 디코드를 그대로 답변.
     # (모델이 약어를 임의 해석하거나 수수료 환산 같은 사족을 붙이는 것 원천 차단 + 즉답)
