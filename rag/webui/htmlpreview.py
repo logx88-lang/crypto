@@ -60,8 +60,10 @@ def render_file(rel_path: str, loc: dict = None, excerpt: str = None) -> str:
     loc = loc or {}
     if not rel_path:
         return "<p class='text-amber-600'>원본 경로 정보가 없습니다.</p>"
-    path = os.path.join(CONFIG.data_dir, *rel_path.split("/"))
-    if not os.path.exists(path):
+    # 경로 이탈(../) 차단 — data_dir 밖 파일 열람 방지(절대경로 기준 컨테인먼트)
+    base = os.path.abspath(CONFIG.data_dir)
+    path = os.path.abspath(os.path.join(base, *rel_path.replace("\\", "/").split("/")))
+    if not path.startswith(base + os.sep) or not os.path.exists(path):
         return f"<p class='text-amber-600'>파일을 찾을 수 없습니다: {_esc(rel_path)}</p>"
     ext = rel_path.rsplit(".", 1)[-1].lower() if "." in rel_path else ""
     exn = _norm(excerpt) if excerpt else ""

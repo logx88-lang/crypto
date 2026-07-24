@@ -107,7 +107,8 @@ def resolve_command_names(retriever, analysis: dict, where: dict = None) -> dict
              "Protocol Control Code List 구분 ID 이름 설명")
     try:
         hits = retriever.search(query, top_k=30, where=w)
-    except Exception:
+    except Exception as e:
+        print(f"[경고] 명세 검색 실패(후보 0으로 진행): {e}", flush=True)
         hits = []
     best, best_names = 0, {}
     for c in hits:
@@ -195,7 +196,8 @@ def find_spec_candidates(retriever, log_text: str, question: str = "",
                 "명령 코드 목록 명령어 일람 명령 정의 command code list command table "
                 "Protocol Control Code List CMD 코드 이름 설명",
                 top_k=12, where=cw)
-        except Exception:
+        except Exception as e:
+            print(f"[경고] 명령표 보강 검색 실패: {e}", flush=True)
             extra = []
         hit = next((c for c in extra if _looks_like_cmd_list(c.get("document", ""))), None)
         if hit:

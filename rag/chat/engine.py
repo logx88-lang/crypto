@@ -192,8 +192,8 @@ def maybe_summarize(llm, conv: dict, keep: int = 6, max_msgs: int = 14) -> None:
     try:
         conv["summary"] = (llm.chat(prompt) or "").strip() or conv.get("summary", "")
         conv["messages"] = msgs[-keep:]
-    except Exception:
-        pass   # 요약 실패해도 대화는 계속
+    except Exception as e:
+        print(f"[경고] 대화 요약 실패(히스토리 미압축, 계속 진행): {e}", flush=True)
 
 
 def answer(pipeline, conv: dict, question: str, scope_files=None,
@@ -258,10 +258,14 @@ def answer(pipeline, conv: dict, question: str, scope_files=None,
         if text2:
             text = text2
         ungrounded = not _grounded(text, len(top)) and not _REFUSAL_RE.search(text)
+        _rewrote = True
+    else:
+        _rewrote = False
     t_llm = time.perf_counter() - t2
     timing = (f"검색 {t_search:.1f}s"
               + (f" · 리랭크 {t_rerank:.1f}s" if not overview else "")
-              + f" · 생성 {t_llm:.1f}s")
+              + f" · 생성 {t_llm:.1f}s"
+              + (" (인용 재작성 포함)" if _rewrote else ""))
     print(f"[속도] {timing} | 질문: {question[:40]}", flush=True)   # 서버 콘솔 병목 진단용
 
     srcs = sources_list(top)

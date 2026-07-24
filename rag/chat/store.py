@@ -85,8 +85,11 @@ def new_conversation(user: str, title: str = "새 대화") -> dict:
 def save_conversation(conv: dict) -> None:
     conv["updated"] = _now()
     path = os.path.join(_conv_dir(conv["user"]), conv["id"] + ".json")
-    with open(path, "w", encoding="utf-8") as f:
+    # 원자적 교체: 쓰다 중단(크래시·동시요청)돼도 반쪽짜리 JSON이 남지 않게 임시파일→rename
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(conv, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def load_conversation(user: str, cid: str) -> dict:

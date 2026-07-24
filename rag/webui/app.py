@@ -16,7 +16,8 @@ from datetime import datetime, timezone
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import HTMLResponse, RedirectResponse, PlainTextResponse, FileResponse
+from starlette.responses import (HTMLResponse, RedirectResponse, PlainTextResponse,
+                                 FileResponse, Response)
 from starlette.routing import Route, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
@@ -28,6 +29,7 @@ from . import scopetree
 BASE = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE, "templates"))
 
+_SRCIMG_CACHE: dict = {}   # (path, mtime, page) -> PNG bytes (근거 이미지 렌더 캐시)
 SESSIONS: dict = {}     # sid -> {"user":..., "conv":cid, "scope":{cid:set}, "open":{cid:set}, "plog":{...}}
 _PIPE: dict = {}
 
@@ -35,11 +37,30 @@ FB_CATS = ["표 추출 오류(표가 깨져 보임)", "표 희석(관련 표 누
            "근거 못 찾음(문서엔 있음)", "출처 오류", "기타"]
 
 
+_PIPE_LOCK = __import__("threading").Lock()
+
+
 def get_pipe():
+    # 락: 콜드스타트에 요청 두 개가 동시에 오면 파이프라인(리랭커 torch 등)을 이중
+    # 빌드해 12GB RAM에서 스왑/OOM 위험 → 한 번만 빌드하고 나머지는 대기.
     if "p" not in _PIPE:
-        from ..generate.answer import build_pipeline
-        _PIPE["p"] = build_pipeline()
+        with _PIPE_LOCK:
+            if "p" not in _PIPE:
+                from ..generate.answer import build_pipeline
+                _PIPE["p"] = build_pipeline()
     return _PIPE["p"]
+
+
+def _safe_path(base_dir: str, rel: str):
+    """base_dir 안의 파일 절대경로 반환. 경로 이탈(../)·미존재면 None.
+
+    (주의: CONFIG 경로가 상대('data')일 수 있으므로 반드시 양쪽을 절대화해 비교 —
+    기존 상대 vs 절대 startswith 비교는 항상 실패해 정상 요청까지 404를 냈다)"""
+    base = os.path.abspath(base_dir)
+    path = os.path.abspath(os.path.join(base, *(rel or "").replace("\\", "/").split("/")))
+    if path != base and not path.startswith(base + os.sep):
+        return None
+    return path if os.path.isfile(path) else None
 
 
 def _now():
@@ -259,7 +280,13 @@ async def login(request):
     if not ok:
         return templates.TemplateResponse(request, "login.html", {"error": msg})
     sid = secrets.token_hex(16)
-    SESSIONS[sid] = {"user": form.get("username", "").strip()}
+    user = form.get("username", "").strip()
+    # 세션 누수 방지: 같은 사용자의 이전 세션 제거 + 전체 상한(오래된 것부터 정리)
+    for k in [k for k, v in list(SESSIONS.items()) if v.get("user") == user]:
+        SESSIONS.pop(k, None)
+    while len(SESSIONS) > 200:
+        SESSIONS.pop(next(iter(SESSIONS)), None)
+    SESSIONS[sid] = {"user": user}
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("sid", sid, httponly=True, samesite="lax")
     return resp
@@ -291,8 +318,11 @@ async def switch_conv(request):
 async def delete_conv(request):
     sess = _sess(request)
     if sess:
-        store.delete_conversation(sess["user"], request.path_params["cid"])
+        cid = request.path_params["cid"]
+        store.delete_conversation(sess["user"], cid)
         sess.pop("conv", None)
+        sess.get("scope", {}).pop(cid, None)
+        sess.get("open", {}).pop(cid, None)
     return RedirectResponse("/", 303)
 
 
@@ -316,6 +346,10 @@ async def chat(request):
         err = html.escape(f"오류: {e} — Ollama·인덱스를 확인하세요.")
         conv["messages"].append({"role": "user", "content": q})
         conv["messages"].append({"role": "assistant", "content": err, "sources": []})
+        try:
+            store.save_conversation(conv)    # 화면·디스크 일치(새로고침에도 유지)
+        except Exception:
+            pass
     if gen.get("cancel"):
         # 취소됨: 이미 저장된 이 질문·답변 쌍을 대화에서 제거(최신 디스크 상태 기준) → 화면에도 미표시
         try:
@@ -523,11 +557,10 @@ async def fb_image(request):
     if not sess:
         return PlainTextResponse("세션 만료", 401)
     from ..config import CONFIG
-    rel = request.query_params.get("f", "")
-    path = os.path.normpath(os.path.join(CONFIG.feedback_dir, rel))
-    if not path.startswith(os.path.abspath(CONFIG.feedback_dir)) or not os.path.exists(path):
+    path = _safe_path(CONFIG.feedback_dir, request.query_params.get("f", ""))
+    if not path:
         return PlainTextResponse("not found", 404)
-    return FileResponse(path)
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 # --- 관리(인덱싱) ----------------------------------------------------------
@@ -615,25 +648,33 @@ async def srcimg(request):
         return PlainTextResponse("세션 만료", 401)
     from ..config import CONFIG
     rel = request.query_params.get("rel_path", "")
-    path = os.path.normpath(os.path.join(CONFIG.data_dir, *rel.split("/")))
-    if not path.startswith(os.path.abspath(CONFIG.data_dir)) or not os.path.exists(path):
+    path = _safe_path(CONFIG.data_dir, rel)
+    if not path:
         return PlainTextResponse("not found", 404)
+    cache_hdr = {"Cache-Control": "private, max-age=86400"}   # 대화 열 때마다 재렌더 방지
     ext = rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
     if ext in _IMG_EXTS:
-        return FileResponse(path)
+        return FileResponse(path, headers=cache_hdr)
     if ext == "pdf":
+        pno_raw = request.query_params.get("page_no") or 1
+        key = (path, os.path.getmtime(path), str(pno_raw))
+        if key in _SRCIMG_CACHE:                              # 서버측 렌더 캐시(LRU)
+            return Response(_SRCIMG_CACHE[key], media_type="image/png", headers=cache_hdr)
+
         def _render():
             import io
             import pdfplumber
             with pdfplumber.open(path) as pdf:
-                pno = min(max(int(request.query_params.get("page_no") or 1), 1), len(pdf.pages))
+                pno = min(max(int(pno_raw), 1), len(pdf.pages))
                 img = pdf.pages[pno - 1].to_image(resolution=110)
                 buf = io.BytesIO(); img.save(buf, format="PNG")
             return buf.getvalue()
         try:
-            from starlette.responses import Response
             data = await run_in_threadpool(_render)   # PDF 렌더가 루프를 막지 않게
-            return Response(data, media_type="image/png")
+            _SRCIMG_CACHE[key] = data
+            while len(_SRCIMG_CACHE) > 64:            # 오래된 항목부터 제거
+                _SRCIMG_CACHE.pop(next(iter(_SRCIMG_CACHE)))
+            return Response(data, media_type="image/png", headers=cache_hdr)
         except Exception as e:
             return PlainTextResponse(f"render fail: {e}", 500)
     return PlainTextResponse("unsupported", 415)
@@ -661,7 +702,27 @@ async def preview(request):
     return HTMLResponse(await run_in_threadpool(render_file, rel_path, qp, excerpt))
 
 
-app = Starlette(routes=[
+import contextlib
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    """서버 시작 직후 파이프라인(BM25·kiwi·리랭커·Chroma)을 백그라운드로 미리 로드 —
+    첫 질문 콜드스타트 제거. 실패해도 서버는 뜬다(첫 질문 때 재시도)."""
+    import asyncio
+
+    async def _bg():
+        try:
+            await run_in_threadpool(get_pipe)
+            print("[워밍업] 파이프라인 로드 완료", flush=True)
+        except Exception as e:
+            print(f"[워밍업] 실패(첫 질문 때 재시도): {e}", flush=True)
+    task = asyncio.get_event_loop().create_task(_bg())
+    yield
+    task.cancel()
+
+
+app = Starlette(lifespan=_lifespan, routes=[
     Route("/", index),
     Route("/login", login, methods=["POST"]),
     Route("/logout", logout, methods=["POST"]),

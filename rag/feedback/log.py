@@ -27,9 +27,10 @@ class FeedbackLog:
         safe = record if already_sanitized else sanitize_record(record)
         os.makedirs(self.dir, exist_ok=True)
         if image_bytes:
-            n = self.count() + 1
+            import secrets as _sec
             slug = str(safe.get("ts", "img")).replace(":", "").replace(" ", "_").replace("-", "")
-            rel = os.path.join("images", f"{slug}_{n}.{image_ext}")
+            # 순번(count) 대신 난수 접미사: 전체 JSONL 재파싱 회피 + 동시 저장 시 파일명 충돌 방지
+            rel = os.path.join("images", f"{slug}_{_sec.token_hex(4)}.{image_ext}")
             os.makedirs(os.path.join(self.dir, "images"), exist_ok=True)
             with open(os.path.join(self.dir, rel), "wb") as f:
                 f.write(image_bytes)

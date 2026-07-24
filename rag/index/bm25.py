@@ -31,7 +31,11 @@ class BM25Index:
         try:
             from kiwipiepy import Kiwi
             self._kiwi = Kiwi()
-        except Exception:
+        except Exception as e:
+            # 무음 폴백 금지: kiwi가 없으면 한글이 통짜 토큰이 되어 BM25 recall이 크게
+            # 떨어진다. 원인을 서버 콘솔에 1회 노출해 조치(휠 반입 등)를 유도한다.
+            print(f"[경고] kiwipiepy 로드 실패 → 한국어 BM25 품질 저하(정규식 폴백): "
+                  f"{type(e).__name__}: {e}", flush=True)
             self._kiwi = None
         return self._kiwi
 

@@ -312,7 +312,9 @@ def parse_pdf(path: str, ocr_backend=None) -> ParsedDoc:
             text = (page.extract_text() or "").strip()
             try:
                 found = page.find_tables() or []
-            except Exception:
+            except Exception as e:
+                print(f"[경고] PDF {os.path.basename(path)} p{idx} 표 추출 실패(표 누락 가능): {e}",
+                      flush=True)
                 found = []
             tables = []
             for t in found:

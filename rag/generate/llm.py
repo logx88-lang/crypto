@@ -60,12 +60,14 @@ class LLMClient:
         primary = model or self.model
         try:
             text = self._post(primary, messages)
-        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e:
+            # TimeoutError/OSError: urlopen 읽기 타임아웃(socket.timeout)·연결 오류는
+            # URLError 로 감싸이지 않는 경우가 있어 명시하지 않으면 폴백이 안 탄다.
             if primary == self.fallback:
                 raise LLMError(f"LLM 호출 실패({primary}): {e}") from e
             try:
                 text = self._post(self.fallback, messages)
-            except (urllib.error.URLError, urllib.error.HTTPError) as e2:
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e2:
                 raise LLMError(
                     f"LLM 호출 실패(주 {primary}, 폴백 {self.fallback}): {e2}"
                 ) from e2

@@ -73,6 +73,9 @@ class EmbeddingClient:
     def _validate(self, vecs) -> None:
         if not vecs or not vecs[0]:
             raise EmbeddingError("빈 임베딩 반환")
+        bad = next((i for i, v in enumerate(vecs) if not v or len(v) != len(vecs[0])), None)
+        if bad is not None:
+            raise EmbeddingError(f"배치 {bad}번째 임베딩이 비었거나 차원이 다름")
         d = len(vecs[0])
         if d != self.dim:
             raise EmbeddingError(

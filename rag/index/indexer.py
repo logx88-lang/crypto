@@ -46,15 +46,23 @@ def diff_manifest(old_manifest: dict, current: dict) -> tuple:
     return to_index, to_delete
 
 
+def _reserved_dirs() -> set:
+    """예약폴더(인덱스/피드백 산출물)의 절대경로 — 이름이 아니라 실제 경로로 판정.
+
+    (기존 basename 비교는 사용자가 만든 'chroma'/'feedback' 이름의 문서 폴더까지 잘못 제외)"""
+    return {os.path.abspath(CONFIG.chroma_dir), os.path.abspath(CONFIG.feedback_dir)}
+
+
 def list_documents(data_dir: str = None) -> list:
     """인덱싱 대상 문서(상대경로) 목록 — 예약폴더(chroma/feedback) 제외."""
     from ..ingest import SUPPORTED_EXTS
     data_dir = data_dir or CONFIG.data_dir
-    reserved = {os.path.basename(CONFIG.chroma_dir), os.path.basename(CONFIG.feedback_dir)}
+    reserved = _reserved_dirs()
     out = []
     if os.path.isdir(data_dir):
         for root, dirs, files in os.walk(data_dir):
-            dirs[:] = [d for d in dirs if d not in reserved]
+            dirs[:] = [d for d in dirs
+                       if os.path.abspath(os.path.join(root, d)) not in reserved]
             for f in files:
                 if is_ignored_file(f):
                     continue
@@ -114,10 +122,11 @@ class Indexer:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     def _scan(self) -> dict:
-        reserved = {os.path.basename(CONFIG.chroma_dir), os.path.basename(CONFIG.feedback_dir)}
+        reserved = _reserved_dirs()
         current = {}
         for root, dirs, files in os.walk(self.data_dir):
-            dirs[:] = [d for d in dirs if d not in reserved]   # 인덱스/피드백 산출물 제외
+            dirs[:] = [d for d in dirs                          # 인덱스/피드백 산출물 제외
+                       if os.path.abspath(os.path.join(root, d)) not in reserved]
             for name in files:
                 if is_ignored_file(name):        # ~$ 잠금/임시·숨김 파일 제외
                     continue
@@ -149,25 +158,28 @@ class Indexer:
 
         stats = {"indexed": 0, "deleted": 0, "chunks": 0, "skipped": 0}
 
-        # 삭제 + 변경 파일의 옛 청크 제거
-        for sf in to_delete + [s for s in to_index if s in manifest]:
+        # 삭제된 파일의 청크 제거 (변경 파일의 옛 청크는 새 청크 등록 '성공 후'에 제거 —
+        # 먼저 지우면 파싱/임베딩이 일시 실패했을 때 멀쩡하던 문서가 검색에서 사라진다)
+        for sf in to_delete:
             old_ids = manifest.get(sf, {}).get("chunk_ids", [])
             if old_ids:
                 self.store.delete(ids=old_ids)
-            if sf in to_delete:
-                manifest.pop(sf, None)
-                stats["deleted"] += 1
+            manifest.pop(sf, None)
+            stats["deleted"] += 1
 
         # 신규/변경 파일 인덱싱 (파일별 오류 격리 — 한 파일 실패가 전체를 막지 않게)
         for sf in to_index:
             path = os.path.join(self.data_dir, sf)
+            old_ids = manifest.get(sf, {}).get("chunk_ids", [])
             try:
                 doc = parse_file(path)
                 chunks = chunk_document(doc)
             except Exception as e:
                 stats.setdefault("failed", []).append({"file": sf, "error": str(e)})
-                continue
+                continue                        # 실패: 옛 청크 유지(문서 소실 방지)
             if not chunks:
+                if old_ids:
+                    self.store.delete(ids=old_ids)
                 manifest[sf] = {**current[sf], "chunk_ids": []}
                 stats["skipped"] += 1
                 continue
@@ -181,6 +193,9 @@ class Indexer:
             vecs = self._embed_batched(texts)
             self.store.add(ids=ids, embeddings=vecs, documents=texts,
                            metadatas=[c.metadata for c in chunks])
+            stale = [i for i in old_ids if i not in set(ids)]
+            if stale:                               # 교체 성공 후에만 옛 청크 제거
+                self.store.delete(ids=stale)
             manifest[sf] = {**current[sf], "chunk_ids": ids}
             stats["indexed"] += 1
             stats["chunks"] += len(chunks)

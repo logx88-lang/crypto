@@ -26,7 +26,8 @@ def _file_chunks(retriever, files):
             where={"source_file": {"$in": list(files)}},
             include=["documents", "metadatas"])
         return got.get("documents", []), got.get("metadatas", [])
-    except Exception:
+    except Exception as e:
+        print(f"[경고] 명세 청크 조회 실패(스키마 없이 진행): {e}", flush=True)
         return [], []
 
 LOG_SYSTEM = (
@@ -58,7 +59,13 @@ def attach_log(conv: dict, log_text: str, files: list, retriever, llm,
     for d in docs:
         for k, v in extract_command_names(d).items():
             names.setdefault(k, v)
-    conv["log"] = {"parsed": parsed, "cmd_names": names, "files": list(files), "name": name}
+    # 스키마(명령별 필드표)는 로그·명세가 고정이면 불변 → 첨부 시 1회 계산해 캐시.
+    # (기존: 질문마다 전체 청크 재조회+정규식 재파싱 → 큰 명세에서 턴마다 수 초 낭비)
+    schemas = _build_schemas(retriever, list(files), names,
+                             _observed_cmd_keys(parsed),
+                             target_len=_cmd_data_lens(parsed))
+    conv["log"] = {"parsed": parsed, "cmd_names": names, "files": list(files),
+                   "name": name, "schemas": schemas}
     save_conversation(conv)
     return parsed
 
@@ -184,9 +191,13 @@ def _decoded_block(parsed: dict, cmd_names: dict, schemas: dict,
 def answer_with_log(pipeline, conv: dict, question: str) -> dict:
     log = conv["log"]
     parsed, names, files = log["parsed"], log["cmd_names"], log["files"]
-    observed = _observed_cmd_keys(parsed)
-    schemas = _build_schemas(pipeline.retriever, files, names, observed,
-                             target_len=_cmd_data_lens(parsed))
+    schemas = log.get("schemas")
+    if not schemas:                      # 구버전 첨부(캐시 없음) 호환 → 1회 계산 후 저장
+        schemas = _build_schemas(pipeline.retriever, files, names,
+                                 _observed_cmd_keys(parsed),
+                                 target_len=_cmd_data_lens(parsed))
+        log["schemas"] = schemas
+        save_conversation(conv)
 
     # 질문에서 언급된 명령/시각의 프레임만 골라 상세 디코드(온디맨드) → 큰 로그도 확장.
     # 최근 대화는 **후속 질문일 때만** 섞는다(새 질문까지 이전 명령에 매몰되는 것 방지).
