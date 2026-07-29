@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 대화 로깅 훅 상태 파일 (uuid 추적용, 커밋 불필요)
+.claude/hooks/.log_state.json
+
+# 로컬 인덱스/데이터 산출물 (오프라인 배포물·대용량)
+/data/
+/chroma/
+*.chroma
+index/*.bin
+*_bm25s/
+*_ids.json
+wheelhouse/
+models/
+*.gguf
+
+# 더미 샘플/업로드 임시물
+samples/_generated/
+uploads/
+
+# 런타임 로그
+/logs/
+*.log
+
+# HTTPS 인증서(개인키 포함 — 절대 커밋 금지). gen_cert.ps1 로 서버에서 생성.
+/certs/
+*.pem
+*.crt
+*.key
+
+# 클라이언트 빌드 산출물(PyInstaller)
+packaging/client/.build/
+packaging/client/build/
+packaging/client/dist/
+packaging/client/*.spec
+
+# OS/에디터
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+packaging/client/.nbuild/
+packaging/client/dist/

@@ -1,0 +1,48 @@
+{% if result %}<div class="mb-4 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">{{ result|safe }}</div>{% endif %}
+
+<div class="mb-4 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 leading-relaxed">
+ 🔒 <b>브라우저 파일 업로드가 막혀 있을 때</b>: 서버의 문서 폴더에 파일을 직접 복사(하위 폴더 가능)한 뒤 아래 <b>‘증분 인덱싱’</b>을 누르세요. 업로드 없이 인덱싱됩니다.<br>
+ 문서 폴더: <code class="bg-white px-1 rounded">{{ cfg.data_dir }}</code>
+</div>
+
+<h3 class="font-medium mb-1">문서 업로드</h3>
+<p class="text-xs text-gray-400 mb-2">지원: {{ exts|join(', ') }} (.doc 는 서버 Word/LibreOffice 필요) · 업로드가 막혀 있으면 위 안내대로 폴더 복사 + 재인덱싱을 쓰세요.</p>
+<form hx-post="/admin/upload" hx-target="#admin-main" hx-swap="innerHTML" hx-encoding="multipart/form-data"
+      class="space-y-2 text-sm border border-gray-200 rounded-xl p-3 mb-6">
+ <div class="flex items-center gap-2 flex-wrap">
+  <label class="text-xs text-gray-500">대상 폴더:</label>
+  <select name="folder" class="border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-[#d6006a]">
+   <option value="">📂 (루트 = 미분류)</option>
+   {% for f in folders %}<option value="{{ f }}">{{ '　'*(f.count('/')) }}📁 {{ f }}</option>{% endfor %}
+  </select>
+  <input name="folder_new" placeholder="또는 새 폴더 경로 (예: 발매/2024)" class="border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-[#d6006a] flex-1 min-w-40">
+ </div>
+ <input type="file" name="docs" multiple accept=".xlsx,.docx,.doc,.pptx,.pdf,.txt,.png,.jpg,.jpeg,.bmp,.tiff,.tif" class="text-xs">
+ <div>
+  <button class="text-xs px-3 py-1.5 rounded-lg bg-[#d6006a] text-white hover:bg-[#b80059]">⬆️ 업로드 저장 + 인덱싱</button>
+  <span class="htmx-indicator text-xs text-[#d6006a] ml-2">저장·인덱싱 중…</span>
+ </div>
+</form>
+
+<h3 class="font-medium mb-1">현재 문서 <span class="text-gray-400 font-normal text-sm">({{ docs|length }}개)</span></h3>
+{% if docs %}
+<details class="mb-6 text-sm"><summary class="cursor-pointer text-gray-500">문서 목록 보기</summary>
+ <ul class="mt-2 space-y-0.5 text-gray-600 max-h-60 overflow-y-auto">{% for d in docs %}<li>• {{ d }}</li>{% endfor %}</ul>
+</details>
+{% else %}<p class="text-sm text-gray-400 mb-6">인덱싱된 문서가 없습니다.</p>{% endif %}
+
+<h3 class="font-medium mb-2">재인덱싱</h3>
+<div class="flex gap-2 mb-6">
+ <button hx-post="/admin/reindex" hx-target="#admin-main" hx-swap="innerHTML" class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:border-[#d6006a] hover:text-[#d6006a]">증분 인덱싱(변경분만)</button>
+ <button hx-post="/admin/reindex?full=1" hx-target="#admin-main" hx-swap="innerHTML" class="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:border-[#d6006a] hover:text-[#d6006a]">전체 재인덱싱</button>
+ <span class="htmx-indicator text-xs text-[#d6006a] self-center">인덱싱 중…</span>
+</div>
+
+<details class="text-xs text-gray-500"><summary class="cursor-pointer">경로/모델 정보</summary>
+ <div class="mt-2 space-y-1">
+  <div>문서 폴더: <code>{{ cfg.data_dir }}</code></div>
+  <div>벡터DB: <code>{{ cfg.chroma_dir }}</code> · BM25: <code>{{ cfg.bm25_path }}</code></div>
+  <div>임베딩: <code>{{ cfg.embed_model }}</code> ({{ cfg.embed_dim }}d) · LLM: <code>{{ cfg.llm_model }}</code></div>
+ </div>
+</details>
+<p class="text-xs text-gray-400 mt-4">업로드하면 서버 data 폴더에 저장·인덱싱됩니다. 이후 ‘대화’에서 사용하세요.</p>

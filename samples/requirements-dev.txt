@@ -1,0 +1,8 @@
+# 더미 샘플 생성 전용(개발 PC) 의존성 — 오프라인 배포물과 무관.
+# 설치: python3 -m pip install -r samples/requirements-dev.txt
+# 실행: python3 samples/generate_samples.py
+openpyxl        # xlsx 생성
+python-docx     # docx 생성
+python-pptx     # pptx 생성
+reportlab       # pdf 생성 (한글 CID 폰트 HYSMyeongJo-Medium 내장)
+Pillow          # png 이미지 생성
