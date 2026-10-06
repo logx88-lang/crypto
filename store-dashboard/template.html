@@ -1,0 +1,911 @@
+<title>마천역점 매입·매출</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: 장부철 느낌의 한 칸 대시보드 — 위에 기간·기준 필터, 탭별로 요약 → 상세 순서 */
+:root {
+  --bg: #f6f5f1;
+  --surface: #fdfcfa;
+  --ink: #1d1b18;
+  --ink-2: #57534b;
+  --muted: #8b867b;
+  --line: #e4e1d8;
+  --line-2: #cfcabd;
+  --accent: #8f2d1d;          /* 마라 기름색, 활성 탭·포커스에만 */
+  --accent-wash: #f4e6e1;
+  --good: #1f7a1f;
+  --bad: #b3261e;
+  --warn-bg: #fbf1d9;
+  --warn-ink: #6b4a00;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --other: #b9b4a8;
+  --font: "IBM Plex Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121211; --surface: #1b1a19; --ink: #f4f2ec; --ink-2: #c6c2b8; --muted: #8e8a80;
+    --line: #2d2c29; --line-2: #3d3b37; --accent: #f08a6c; --accent-wash: #3a221c;
+    --good: #3cc13c; --bad: #ff7b72; --warn-bg: #3a2f12; --warn-ink: #f3d27a;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767; --other: #5d5a54;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121211; --surface: #1b1a19; --ink: #f4f2ec; --ink-2: #c6c2b8; --muted: #8e8a80;
+  --line: #2d2c29; --line-2: #3d3b37; --accent: #f08a6c; --accent-wash: #3a221c;
+  --good: #3cc13c; --bad: #ff7b72; --warn-bg: #3a2f12; --warn-ink: #f3d27a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767; --other: #5d5a54;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.55; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 64px; }
+@media (max-width: 520px) { .wrap { padding-inline: 16px; } }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 16px; font-weight: 600; }
+h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.num, td.n, th.n { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.eyebrow { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; padding-bottom: 14px; border-bottom: 1px solid var(--line-2); }
+header.top .meta { display: flex; flex-direction: column; gap: 2px; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding-block: 14px; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink-2); padding: 6px 11px; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.seg button:hover:not([aria-pressed="true"]) { background: var(--accent-wash); }
+.ctl-label { font-size: 12px; color: var(--muted); margin-right: 6px; }
+
+nav.tabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line-2); margin-bottom: 20px; position: sticky; top: env(safe-area-inset-top, 0px); background: var(--bg); z-index: 5; }
+nav.tabs button { font: inherit; font-size: 14px; font-weight: 500; border: 0; background: none; color: var(--ink-2); padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+section.panel { display: flex; flex-direction: column; gap: 20px; }
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.box-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.kpi { padding: 14px 18px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kpi:last-child { border-right: 0; }
+.kpi .v { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.kpi .v small { font-size: 13px; font-weight: 500; color: var(--ink-2); margin-left: 2px; }
+.kpi .d { font-size: 12px; color: var(--ink-2); }
+@media (max-width: 760px) { .kpi { border-right: 0; border-bottom: 1px solid var(--line); } .kpi:last-child { border-bottom: 0; } }
+
+.notes { display: flex; flex-direction: column; gap: 8px; }
+.note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); font-size: 13px; }
+.note.info { background: var(--accent-wash); color: var(--ink); }
+.note b { font-weight: 600; }
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.warn { color: var(--warn-ink); background: var(--warn-bg); border-color: transparent; }
+.pill.ok { color: var(--good); }
+.pill.biz { color: var(--ink-2); }
+.pill.per { color: var(--bad); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--muted); font-family: var(--font); font-size: 11px; }
+.chart .grid-l { stroke: var(--line); stroke-width: 1; }
+.chart .base-l { stroke: var(--line-2); stroke-width: 1; }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:hover + g rect, .chart g.bar:hover rect { opacity: .85; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface); font-size: 12px; padding: 8px 10px; border-radius: 8px; min-width: 150px; z-index: 10; box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+.tip .row { display: flex; justify-content: space-between; gap: 14px; font-variant-numeric: tabular-nums; }
+.tip .row i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 6px; }
+.tip .t { font-weight: 600; margin-bottom: 4px; }
+
+.tbl-wrap { overflow-x: auto; margin-inline: -4px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--surface); position: sticky; top: 0; }
+td.n, th.n { text-align: right; }
+td.wrap-t { white-space: normal; min-width: 160px; }
+tr.total td { font-weight: 600; border-top: 1px solid var(--line-2); border-bottom: 0; }
+tbody tr:hover td { background: var(--accent-wash); }
+.neg { color: var(--bad); }
+.pos { color: var(--good); }
+.scroll-y { max-height: 520px; overflow: auto; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+input[type="search"], select { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink); }
+input[type="search"] { min-width: 0; flex: 1 1 200px; }
+td select { padding: 3px 6px; font-size: 12px; }
+.btn { font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn:hover { border-color: var(--accent); }
+.switch { font: inherit; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; cursor: pointer; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); }
+.switch.per { color: var(--bad); border-color: var(--bad); }
+
+.hbar { display: grid; grid-template-columns: minmax(90px, 160px) 1fr auto; gap: 6px 10px; align-items: center; font-size: 13px; }
+.hbar .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.hbar .track { height: 12px; position: relative; }
+.hbar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 0 4px 4px 0; min-width: 2px; }
+.hbar .val { font-variant-numeric: tabular-nums; text-align: right; }
+
+.drop { border: 1.5px dashed var(--line-2); border-radius: 10px; padding: 28px 18px; text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; background: var(--surface); }
+.drop.over { border-color: var(--accent); background: var(--accent-wash); }
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 6px 14px; }
+.cat-grid > div { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+details summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--ink-2); }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .fade { animation: fade .25s ease-out; } @keyframes fade { from { opacity: .4 } to { opacity: 1 } } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="meta">
+      <span class="eyebrow" id="store-eyebrow">매입·매출 장부 분석</span>
+      <h1 id="store-name">매입·매출 대시보드</h1>
+    </div>
+    <div class="small muted" id="gen-info"></div>
+  </header>
+
+  <div class="controls">
+    <div><span class="ctl-label">기간</span><span class="seg" id="period-seg"></span></div>
+    <div><span class="ctl-label">매출 기준</span><span class="seg" id="basis-seg">
+      <button type="button" data-basis="platform" aria-pressed="true">플랫폼 정산서</button>
+      <button type="button" data-basis="ledger" aria-pressed="false">세무사 장부</button>
+    </span></div>
+  </div>
+
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-tab="summary" aria-selected="true">요약</button>
+    <button role="tab" data-tab="sales" aria-selected="false">매출</button>
+    <button role="tab" data-tab="delivery" aria-selected="false">배달앱 정산</button>
+    <button role="tab" data-tab="purchase" aria-selected="false">매입</button>
+    <button role="tab" data-tab="card" aria-selected="false">신용카드</button>
+    <button role="tab" data-tab="bank" aria-selected="false">통장</button>
+    <button role="tab" data-tab="data" aria-selected="false">데이터·분류</button>
+  </nav>
+
+  <main id="main"></main>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+</script>
+<script>
+"use strict";
+/* ============================================================ 저장(브라우저) */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("mm:" + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("mm:" + k, JSON.stringify(v)); } catch (e) {} },
+};
+
+/* ============================================================ 분류 규칙 */
+// asset: 운영비에서 제외(자산 구입), personal: 기본 생활비 처리, extra: 통장에서만 잡히는 비용
+const CATEGORIES = [
+  { id: "식자재", personal: false }, { id: "음료·주류", personal: false }, { id: "포장·소모품", personal: false },
+  { id: "배송·물류", personal: false }, { id: "배달대행", personal: false }, { id: "배달앱 수수료", personal: false },
+  { id: "광고비", personal: false }, { id: "결제 수수료", personal: false }, { id: "임차료", personal: false },
+  { id: "공과금·통신", personal: false }, { id: "세무·방역·렌탈", personal: false }, { id: "수선·설비", personal: false },
+  { id: "보험", personal: false }, { id: "차량유지", personal: false }, { id: "인건비", personal: false },
+  { id: "세금·4대보험", personal: false }, { id: "식대·외식", personal: true }, { id: "생활·기타", personal: true },
+  { id: "기타", personal: false }, { id: "차량·자산 구입", personal: false, asset: true },
+];
+const RULES = [
+  [/효성더클래스|벤츠|모터스|자동차/, "차량·자산 구입"],
+  [/우아한형제들|쿠팡 주식회사|쿠팡페이|위대한상상|요기요/, "배달앱 수수료"],
+  [/생각대로|다된다|바로고|부릉|퀵/, "배달대행"],
+  [/경강/, "배송·물류"],
+  [/제트유엔|이레푸드|엘엔티유통|탕화쿵푸 주식회사|한국탕화쿵푸|농산|승진유통|인왕유통|라임마트|공판장|가락마당|트레이더스|이마트|생선|정육|수산|식자재|하나로|진로마트|진로할인|형제닭집|두부마을|아원푸드|메이드 인|드림디포|신화유통|행복진로/, "식자재"],
+  [/롯데칠성|주류|코카콜라/, "음료·주류"],
+  [/다이소|쿠팡\(쿠페이\)|기물|종합주방/, "포장·소모품"],
+  [/나이스정보|헥토파이낸셜|이니시스|코페이|케이씨피|KCP|토스페이먼츠|인피니소프트/, "결제 수수료"],
+  [/한국전력|전기|코원에너지|도시가스|케이티|KT |KT통신|통신요금|휴대폰알림|수도/, "공과금·통신"],
+  [/회계|세무|세스코|코웨이/, "세무·방역·렌탈"],
+  [/냉동상사|식기세척기|설비|수리/, "수선·설비"],
+  [/당근마켓|잡코리아|알바몬|광고/, "광고비"],
+  [/화재|해상|보험/, "보험"],
+  [/주유소|오일|충전소|주차/, "차량유지"],
+  [/씨유|CU|GS25|세븐일레븐|이마트24|약국|아이스크림|투썸|스타벅스|이디야|메가|빽다방|길고양이|올리브영/, "생활·기타"],
+];
+const ITEM_RULES = [[/Product Ads|광고/, "광고비"], [/임차료/, "임차료"], [/배송비/, "배송·물류"], [/배달가맹비/, "배달대행"], [/기장료|조정수수료/, "세무·방역·렌탈"]];
+const RESTAURANT = /식당|국밥|칼국수|김밥|감자탕|샤브|만두|설렁탕|짜장|치킨|돈까스|우동|피자|해장국|순대|닭|양꼬치|한정식|쌈밥|흑염소|훠궈|맘스터치|케이에프씨|KFC|삼계탕|면옥|구이|돼지|밥상|보리밥|뼈국|국수|초밥|횟집|분식|반점|각$|원$|집$|고방|백제스카이|매머드|창영|초원|용문각|수빈이네|복성각|하나로/;
+
+function classifyVendor(vendor, item, isCard) {
+  const ov = state.overrides[vendor];
+  if (ov) return ov;
+  for (const [re, c] of ITEM_RULES) if (item && re.test(item)) return c;
+  for (const [re, c] of RULES) if (re.test(vendor)) return c;
+  if (RESTAURANT.test(vendor)) return "식대·외식";
+  return isCard ? "식대·외식" : "기타";
+}
+function isPersonal(cat) { const v = state.personalCats[cat]; return v === undefined ? !!(CATEGORIES.find(c => c.id === cat) || {}).personal : v; }
+function isAsset(cat) { return !!(CATEGORIES.find(c => c.id === cat) || {}).asset; }
+
+const BANK_IN_RULES = [[/우아한|배민|배달의민족/, "배민 정산"], [/쿠팡/, "쿠팡이츠 정산"], [/요기요|위대한상상/, "요기요 정산"],
+  [/카드|BC|비씨|KB|국민|신한|삼성|현대|롯데|하나|NH|농협|우리|나이스|KICC|KIS|스마트로|토스/, "카드 매출 입금"]];
+const BANK_OUT_EXTRA = [[/급여|월급|알바|인건비|상여/, "인건비"], [/국민연금|건강보험|건보|고용보험|산재|국세|지방세|세무서|부가세|종합소득|원천세|위택스|홈택스/, "세금·4대보험"],
+  [/카드대금|카드결제|결제대금|카드$/, "카드대금"]];
+function classifyBank(row) {
+  const ov = state.bankOverrides[row.desc];
+  if (ov) return ov;
+  if (row.in > 0) { for (const [re, c] of BANK_IN_RULES) if (re.test(row.desc)) return c; return "기타 입금"; }
+  for (const [re, c] of BANK_OUT_EXTRA) if (re.test(row.desc)) return c;
+  for (const [re, c] of RULES) if (re.test(row.desc)) return c;
+  const BANK_WORDS = /^(타행|당행|이체|입금|출금|자동|대체|인터넷|모바일|스마트|폰뱅킹|펌뱅킹|창구|전자금융|오픈뱅킹|체크|송금)$/;
+  if (row.desc.split(/\s+/).some(t => /^[가-힣]{2,4}$/.test(t) && !BANK_WORDS.test(t))) return "인건비";  // 사람 이름으로 보이는 이체는 인건비로 추정
+  return "기타 출금";
+}
+const BANK_IN_CATS = ["카드 매출 입금", "배민 정산", "쿠팡이츠 정산", "요기요 정산", "기타 입금"];
+const BANK_OUT_CATS = ["인건비", "세금·4대보험", "카드대금", ...CATEGORIES.map(c => c.id).filter(c => !["인건비", "세금·4대보험"].includes(c)), "기타 출금"];
+// 통장에서 가져와 비용에 더하는 항목 (재료 이체 등은 세금계산서로 이미 장부에 있어 중복이라 제외)
+const BANK_COST_CATS = ["인건비", "세금·4대보험"];
+
+/* ============================================================ 상태 */
+const state = {
+  tab: store.get("tab", "summary"),
+  period: "all",
+  basis: store.get("basis", "platform"),
+  overrides: store.get("overrides", {}),
+  personalCats: store.get("personalCats", {}),
+  bankOverrides: store.get("bankOverrides", {}),
+  bank: (DATA && DATA.bank && DATA.bank.length) ? DATA.bank : store.get("bank", []),
+  purchaseFilter: { q: "", cat: "", src: "" },
+  bankFilter: { q: "", cat: "" },
+};
+
+/* ============================================================ 포맷 */
+const fmt = n => (Math.round(n) || 0).toLocaleString("ko-KR");
+const man = n => { const v = n / 10000; return (Math.abs(v) >= 100 ? Math.round(v).toLocaleString("ko-KR") : v.toFixed(1)) + "만"; };
+const eok = n => Math.abs(n) >= 1e8 ? (n / 1e8).toFixed(2) + "억" : man(n);
+const pct = (a, b) => b ? (a / b * 100).toFixed(1) + "%" : "–";
+const mLabel = m => +m.slice(5) + "월";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const sum = (arr, f) => arr.reduce((a, x) => a + (f ? f(x) : x), 0);
+
+/* ============================================================ 계산 */
+let M = null; // 계산 결과 캐시
+
+function compute() {
+  const D = DATA;
+  const ledgerMonths = [...new Set(D.ledgerSales.map(s => s.date.slice(0, 7)))].sort();
+  const months = ledgerMonths.length ? ledgerMonths : [...new Set(D.purchases.map(p => p.date.slice(0, 7)))].sort();
+  const inM = d => months.includes(d.slice(0, 7));
+  const blank = () => Object.fromEntries(months.map(m => [m, 0]));
+
+  // --- 홈택스(장부) 매출
+  const hallCard = blank(), cashRcpt = blank();
+  let ledgerBaemin = 0, ledgerYogiyo = 0, ledgerCoupang = 0, ledgerSalesTotal = 0, ledgerSalesVat = 0;
+  for (const s of D.ledgerSales) {
+    const m = s.date.slice(0, 7); ledgerSalesTotal += s.total; ledgerSalesVat += s.vat;
+    if (/배달의민족|배민/.test(s.partner)) ledgerBaemin += s.total;
+    else if (/요기요/.test(s.partner)) ledgerYogiyo += s.total;
+    else if (/쿠팡/.test(s.partner)) ledgerCoupang += s.total;
+    else if (/현금/.test(s.partner)) cashRcpt[m] += s.total;
+    else if (m in hallCard) hallCard[m] += s.total;
+  }
+
+  // --- 쿠팡이츠 (주문 단위)
+  const cp = { gross: blank(), cash: blank(), card: blank(), etc: blank(), refund: blank(), orders: blank(), refunds: blank() };
+  const heat = Array.from({ length: 7 }, () => Array(24).fill(0));
+  const heatAmt = Array.from({ length: 7 }, () => Array(24).fill(0));
+  for (const r of D.coupang) {
+    const [id, dt, card, cash, etc, disc, rcard, rcash, retc] = r;
+    const m = dt.slice(0, 7); if (!(m in cp.gross)) continue;
+    const sale = card + cash + etc, ref = rcard + rcash + retc;
+    cp.gross[m] += sale - ref; cp.cash[m] += cash - rcash; cp.card[m] += card - rcard; cp.etc[m] += etc - retc; cp.refund[m] += ref;
+    if (sale > 0) { cp.orders[m] += 1; const d = new Date(dt.replace(" ", "T")); const wd = (d.getDay() + 6) % 7; heat[wd][d.getHours()] += 1; heatAmt[wd][d.getHours()] += sale; }
+    if (ref > 0) cp.refunds[m] += 1;
+  }
+
+  // --- 배민 (정산대상기간 = 주문일 기준)
+  const bmKeys = ["orderNow", "orderMeet", "refund", "commission", "tipNow", "tipMeet", "club", "delivery", "payFee", "meetCollected", "adjust", "vat", "ad", "order", "payout"];
+  const bm = Object.fromEntries(bmKeys.map(k => [k, blank()]));
+  const bmByType = {};
+  let bmMaxDate = "";
+  for (const r of D.baemin) {
+    const m = (r.date || r.paid).slice(0, 7); if (!(m in bm.payout)) continue;
+    if (r.date > bmMaxDate) bmMaxDate = r.date;
+    for (const k of bmKeys) bm[k][m] += r[k];
+    const t = r.type || "기타"; bmByType[t] = bmByType[t] || Object.fromEntries(bmKeys.map(k => [k, 0]));
+    for (const k of bmKeys) bmByType[t][k] += r[k];
+  }
+  const bmGross = blank();
+  for (const m of months) bmGross[m] = bm.orderNow[m] + bm.orderMeet[m] + bm.tipNow[m] + bm.tipMeet[m] + bm.refund[m];
+  const bmFeeOf = o => -(o.commission + o.delivery + o.payFee + o.club + o.vat + o.ad + o.order);
+
+  // --- 요기요
+  const yg = { gross: blank(), fee: blank(), orders: blank(), deliveryFee: blank() };
+  const ygCostNames = {};
+  for (const o of D.yogiyo) {
+    const m = o.dt.slice(0, 7); if (!(m in yg.gross) || o.refunded || o.kind !== "주문") continue;
+    yg.gross[m] += o.amount + o.deliveryFee; yg.orders[m] += 1; yg.deliveryFee[m] += o.deliveryFee;
+    for (const [k, v] of Object.entries(o.costs)) { yg.fee[m] += v; ygCostNames[k] = (ygCostNames[k] || 0) + v; }
+  }
+
+  // --- 매입 (장부 + 장부에 없는 카드 사용분)
+  const purchases = D.purchases.map((p, i) => ({ ...p, id: "L" + i, isCard: /^5[78]\./.test(p.type) }));
+  const ledgerCard = purchases.filter(p => p.card);
+  const cards = D.card.map((c, i) => {
+    const t = Date.parse(c.date);
+    const hit = ledgerCard.find(p => p.card.includes(c.card) && p.total === c.amount && Math.abs(Date.parse(p.date) - t) <= 3 * 864e5);
+    return { ...c, id: "C" + i, inLedger: !!hit };
+  });
+  for (const c of cards) if (!c.inLedger && !c.cancel) purchases.push({ date: c.date, vendor: c.vendor, bizno: c.bizno, item: c.inst > 1 ? c.inst + "개월 할부" : "", supply: c.amount - c.vat, vat: c.vat, total: c.amount, type: "카드(장부 미반영)", card: "카드 " + c.card, src: "카드", id: c.id, isCard: true });
+
+  // --- 통장
+  const bank = state.bank.map((b, i) => ({ ...b, id: "B" + i }));
+  for (const b of bank) if (b.out > 0) {
+    const cat = classifyBank(b);
+    if (BANK_COST_CATS.includes(cat)) purchases.push({ date: b.date, vendor: b.desc || "(적요 없음)", bizno: "", item: "통장 출금", supply: b.out, vat: 0, total: b.out, type: "통장", card: "", src: "통장", id: b.id, isCard: false, bankCat: cat });
+  }
+  for (const p of purchases) p.cat = p.bankCat || classifyVendor(p.vendor, p.item, p.isCard);
+
+  // --- 쿠팡 수수료(장부 세금계산서)
+  const cpFee = blank(), cpAds = blank(), cpRebate = blank();
+  for (const p of D.purchases) {
+    const m = p.date.slice(0, 7); if (!(m in cpFee)) continue;
+    if (/쿠팡 주식회사/.test(p.vendor)) { if (/Ads/i.test(p.item)) cpAds[m] += p.total; else cpFee[m] += p.total; }
+    if (/쿠팡페이/.test(p.vendor)) cpRebate[m] += p.total;
+  }
+
+  return { months, inM, hallCard, cashRcpt, ledgerBaemin, ledgerYogiyo, ledgerCoupang, ledgerSalesTotal, ledgerSalesVat,
+    cp, heat, heatAmt, bm, bmGross, bmByType, bmFeeOf, bmMaxDate, yg, ygCostNames, purchases, cards, bank, cpFee, cpAds, cpRebate };
+}
+
+// 기준에 따른 월별 채널 매출
+function salesByChannel() {
+  const { months, hallCard, cashRcpt, cp, bmGross, yg, ledgerBaemin, ledgerYogiyo } = M;
+  const platGross = sum(months, m => bmGross[m] + yg.gross[m]);
+  const excess = Math.max(0, platGross - ledgerBaemin - ledgerYogiyo);
+  const rows = months.map(m => {
+    let hallCash = cashRcpt[m] - cp.cash[m];
+    if (state.basis === "ledger" && platGross) hallCash -= excess * (bmGross[m] + yg.gross[m]) / platGross;
+    hallCash = Math.max(0, hallCash);
+    return { m, hallCard: hallCard[m], hallCash, baemin: bmGross[m], coupang: cp.gross[m], yogiyo: yg.gross[m] };
+  });
+  rows.forEach(r => r.total = r.hallCard + r.hallCash + r.baemin + r.coupang + r.yogiyo);
+  return rows;
+}
+const CHANNELS = [
+  { k: "hallCard", name: "홀 카드", color: "var(--s1)" }, { k: "hallCash", name: "홀 현금영수증", color: "var(--s2)" },
+  { k: "baemin", name: "배달의민족", color: "var(--s3)" }, { k: "coupang", name: "쿠팡이츠", color: "var(--s4)" },
+  { k: "yogiyo", name: "요기요", color: "var(--s5)" },
+];
+
+function periodMonths() { return state.period === "all" ? M.months : [state.period]; }
+function inPeriod(d) { return periodMonths().includes(d.slice(0, 7)); }
+
+function costRows() { return M.purchases.filter(p => inPeriod(p.date)); }
+function bizCostRows() { return costRows().filter(p => !isPersonal(p.cat) && !isAsset(p.cat)); }
+function costByMonth(filter) {
+  const o = Object.fromEntries(M.months.map(m => [m, 0]));
+  for (const p of M.purchases) { const m = p.date.slice(0, 7); if (m in o && filter(p)) o[m] += p.total; }
+  return o;
+}
+
+/* ============================================================ 차트 */
+const tip = document.getElementById("tip");
+function showTip(evt, html) {
+  tip.innerHTML = html; tip.hidden = false;
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = evt.pageX + pad, y = evt.pageY - h - pad;
+  if (x + w > window.scrollX + document.documentElement.clientWidth - 8) x = evt.pageX - w - pad;
+  if (y < window.scrollY + 8) y = evt.pageY + pad;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { tip.hidden = true; }
+function chartW(el) { return Math.max(300, Math.min(760, el.clientWidth || 640)); }
+function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
+function legendHtml(series) { return `<div class="legend">${series.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("")}</div>`; }
+
+// 누적 막대 (음수 없는 값) — 막대에 마우스를 올리면 구성 표시
+function stackedBars(el, labels, series, opt = {}) {
+  const W = chartW(el), H = opt.h || 240, L = 46, R = 8, T = 10, B = 26;
+  const totals = labels.map((_, i) => sum(series, s => Math.max(0, s.values[i])));
+  const max = opt.max || niceMax(Math.max(...totals, 1));
+  const iw = W - L - R, ih = H - T - B, bw = Math.min(46, iw / labels.length * 0.56);
+  const y = v => T + ih - v / max * ih;
+  let g = "";
+  const axis = opt.axis || (v => v ? man(v) : "0");
+  for (let t = 0; t <= 4; t++) { const v = max * t / 4, yy = y(v); g += `<line class="${t ? "grid-l" : "base-l"}" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${axis(v)}</text>`; }
+  labels.forEach((lab, i) => {
+    const cx = L + iw * (i + 0.5) / labels.length;
+    let acc = 0, segs = "";
+    const vis = series.filter(s => s.values[i] > 0);
+    vis.forEach((s, j) => {
+      const v = s.values[i], y0 = y(acc), y1 = y(acc + v); acc += v;
+      const hgt = Math.max(0, y0 - y1 - (j < vis.length - 1 ? 2 : 0));
+      const top = j === vis.length - 1;
+      segs += top ? `<path d="M${cx - bw / 2},${y0} V${y1 + 4} Q${cx - bw / 2},${y1} ${cx - bw / 2 + 4},${y1} H${cx + bw / 2 - 4} Q${cx + bw / 2},${y1} ${cx + bw / 2},${y1 + 4} V${y0} Z" fill="${s.color}"/>`
+        : `<rect x="${cx - bw / 2}" y="${y0 - hgt}" width="${bw}" height="${hgt}" fill="${s.color}"/>`;
+    });
+    g += `<g class="bar" data-i="${i}">${segs}<rect class="hit" x="${L + iw * i / labels.length}" y="${T}" width="${iw / labels.length}" height="${ih}"/></g>`;
+    g += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
+    if (opt.topLabels) g += `<text x="${cx}" y="${y(totals[i]) - 5}" text-anchor="middle" style="fill:var(--ink-2)">${man(totals[i])}</text>`;
+  });
+  el.innerHTML = (series.length > 1 ? legendHtml(series) : "") + `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.label || "")}">${g}</svg></div>`;
+  el.querySelectorAll("g.bar").forEach(gEl => {
+    const i = +gEl.dataset.i;
+    gEl.addEventListener("mousemove", e => showTip(e, opt.tip ? opt.tip(i) : `<div class="t">${esc(labels[i])} · ${fmt(totals[i])}원</div>` + series.filter(s => s.values[i]).slice().reverse().map(s => `<div class="row"><span><i style="background:${s.color}"></i>${esc(s.name)}</span><span>${fmt(s.values[i])} <span style="opacity:.7">${pct(s.values[i], totals[i])}</span></span></div>`).join("")));
+    gEl.addEventListener("mouseleave", hideTip);
+  });
+}
+
+// 단일 계열 막대 (음수 허용)
+function signedBars(el, labels, values, opt = {}) {
+  const W = chartW(el), H = opt.h || 200, L = 46, R = 8, T = 16, B = 26;
+  const mx = niceMax(Math.max(...values.map(Math.abs), 1));
+  const hasNeg = values.some(v => v < 0);
+  const lo = hasNeg ? -mx : 0, hi = mx;
+  const iw = W - L - R, ih = H - T - B, bw = Math.min(40, iw / labels.length * 0.5);
+  const y = v => T + (hi - v) / (hi - lo) * ih;
+  let g = "";
+  const ticks = hasNeg ? [-mx, -mx / 2, 0, mx / 2, mx] : [0, mx / 4, mx / 2, mx * 3 / 4, mx];
+  ticks.forEach(v => { g += `<line class="${v === 0 ? "base-l" : "grid-l"}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v === 0 ? "0" : man(v)}</text>`; });
+  labels.forEach((lab, i) => {
+    const cx = L + iw * (i + 0.5) / labels.length, v = values[i];
+    const y0 = y(0), y1 = y(v), top = Math.min(y0, y1), h = Math.abs(y1 - y0);
+    const col = v < 0 ? "var(--bad)" : (opt.color || "var(--s1)");
+    const r = Math.min(4, h);
+    const d = v >= 0 ? `M${cx - bw / 2},${y0} V${top + r} Q${cx - bw / 2},${top} ${cx - bw / 2 + r},${top} H${cx + bw / 2 - r} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + r} V${y0} Z`
+      : `M${cx - bw / 2},${y0} V${y1 - r} Q${cx - bw / 2},${y1} ${cx - bw / 2 + r},${y1} H${cx + bw / 2 - r} Q${cx + bw / 2},${y1} ${cx + bw / 2},${y1 - r} V${y0} Z`;
+    g += `<g class="bar" data-i="${i}"><path d="${d}" fill="${col}"/><rect class="hit" x="${L + iw * i / labels.length}" y="${T}" width="${iw / labels.length}" height="${ih}"/></g>`;
+    g += `<text x="${cx}" y="${(v >= 0 ? top - 5 : y1 + 13)}" text-anchor="middle" style="fill:var(--ink-2)">${man(v)}</text>`;
+    g += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  el.innerHTML = `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.label || "")}">${g}</svg></div>`;
+  el.querySelectorAll("g.bar").forEach(gEl => {
+    const i = +gEl.dataset.i;
+    gEl.addEventListener("mousemove", e => showTip(e, `<div class="t">${esc(labels[i])}</div><div class="row"><span>${esc(opt.name || "")}</span><span>${fmt(values[i])}원</span></div>` + (opt.extra ? opt.extra(i) : "")));
+    gEl.addEventListener("mouseleave", hideTip);
+  });
+}
+
+function hbars(items, color, total) {
+  const max = Math.max(...items.map(i => i.value), 1);
+  return `<div class="hbar">${items.map(i => `<span class="lbl" title="${esc(i.label)}">${esc(i.label)}</span><span class="track"><span class="fill" style="width:${(i.value / max * 100).toFixed(1)}%;background:${i.color || color}"></span></span><span class="val">${man(i.value)}${total ? ` <span class="muted small">${pct(i.value, total)}</span>` : ""}</span>`).join("")}</div>`;
+}
+
+function heatmap(el, matrix, amt) {
+  const days = ["월", "화", "수", "목", "금", "토", "일"];
+  const hours = []; for (let h = 0; h < 24; h++) if (matrix.some(r => r[h] > 0)) hours.push(h);
+  const max = Math.max(...matrix.flat(), 1);
+  const W = chartW(el), L = 26, T = 18, cw = (W - L) / hours.length, ch = 22, H = T + ch * 7 + 4;
+  let g = "";
+  hours.forEach((h, j) => { if (j % (cw < 34 ? 2 : 1) === 0) g += `<text x="${L + cw * (j + .5)}" y="12" text-anchor="middle">${h}시</text>`; });
+  days.forEach((d, i) => {
+    g += `<text x="${L - 6}" y="${T + ch * i + 15}" text-anchor="end">${d}</text>`;
+    hours.forEach((h, j) => {
+      const v = matrix[i][h], a = v / max;
+      g += `<rect class="cell" data-d="${i}" data-h="${h}" x="${L + cw * j + 1}" y="${T + ch * i + 1}" width="${cw - 2}" height="${ch - 2}" rx="3" fill="var(--s1)" fill-opacity="${v ? (0.08 + a * 0.92).toFixed(2) : 0.03}"/>`;
+    });
+  });
+  el.innerHTML = `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="요일·시간대별 주문 수">${g}</svg></div>
+  <div class="legend"><span>적음</span>${[0.1, 0.3, 0.55, 0.8, 1].map(a => `<i style="background:var(--s1);opacity:${a}"></i>`).join("")}<span>많음</span></div>`;
+  el.querySelectorAll("rect.cell").forEach(c => {
+    const d = +c.dataset.d, h = +c.dataset.h;
+    c.addEventListener("mousemove", e => showTip(e, `<div class="t">${days[d]}요일 ${h}시대</div><div class="row"><span>주문</span><span>${matrix[d][h]}건</span></div><div class="row"><span>매출</span><span>${fmt(amt[d][h])}원</span></div>`));
+    c.addEventListener("mouseleave", hideTip);
+  });
+}
+
+/* ============================================================ 화면 공통 */
+const main = document.getElementById("main");
+function box(title, body, right = "", sub = "") { return `<div class="box"><div class="box-head"><div><h2>${title}</h2>${sub ? `<div class="small muted">${sub}</div>` : ""}</div>${right}</div>${body}</div>`; }
+function kpi(label, value, desc) { return `<div class="kpi"><span class="eyebrow">${label}</span><span class="v num">${value}</span><span class="d">${desc || ""}</span></div>`; }
+function table(head, rows, opt = {}) {
+  return `<div class="tbl-wrap ${opt.scroll ? "scroll-y" : ""}"><table><thead><tr>${head.map(h => `<th class="${h.n ? "n" : ""}">${h.t}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+}
+const td = (v, n, cls = "") => `<td class="${n ? "n " : ""}${cls}">${v}</td>`;
+const signed = v => `<span class="${v < 0 ? "neg" : ""}">${fmt(v)}</span>`;
+
+/* ============================================================ 요약 */
+function renderSummary() {
+  const rows = salesByChannel().filter(r => periodMonths().includes(r.m));
+  const sales = sum(rows, r => r.total);
+  const biz = bizCostRows(); const cost = sum(biz, p => p.total);
+  const personal = sum(costRows().filter(p => isPersonal(p.cat)), p => p.total);
+  const asset = sum(costRows().filter(p => isAsset(p.cat)), p => p.total);
+  const deliv = sum(rows, r => r.baemin + r.coupang + r.yogiyo);
+  const hasLabor = biz.some(p => p.cat === "인건비");
+  const profit = sales - cost;
+  const vatOut = state.period === "all" ? M.ledgerSalesVat : null;
+  const vatIn = sum(M.purchases.filter(p => inPeriod(p.date) && p.src === "장부" && /^(51|57|61)\./.test(p.type)), p => p.vat);
+
+  const notes = [];
+  if (!M.bank.length) notes.push(`<div class="note"><span class="pill warn">확인 필요</span><span><b>통장 내역이 아직 없습니다.</b> 인건비·4대보험 같은 계좌이체 비용이 이익 계산에 빠져 있어요. <a href="#" data-goto="bank">통장 탭</a>에서 엑셀을 올리면 바로 반영됩니다.</span></div>`);
+  const platGross = sum(M.months, m => M.bmGross[m]);
+  if (Math.abs(platGross - M.ledgerBaemin) > 1e6) notes.push(`<div class="note"><span class="pill warn">확인 필요</span><span><b>배민 매출이 장부보다 ${eok(platGross - M.ledgerBaemin)} 많습니다.</b> 정산서 주문금액은 ${eok(platGross)}인데 장부의 배민 매출은 ${eok(M.ledgerBaemin)}로, 배민이 실제 입금한 ${eok(sum(M.months, m => M.bm.payout[m]))}보다도 적습니다. 배민 현금성 결제가 홈택스 현금영수증에 들어 있다고 봐도 차액을 다 설명하지 못해(‘세무사 장부’ 기준을 누르면 홀 현금영수증이 거의 0이 됩니다) 장부에서 배민 매출 일부가 빠졌을 수 있습니다. 세무사에게 배민 부가세 신고자료 반영 여부를 확인해 보세요.</span></div>`);
+  if (M.bmMaxDate && M.bmMaxDate < M.months[M.months.length - 1] + "-28") notes.push(`<div class="note info"><span class="pill biz">참고</span><span>배민 정산서는 주문일 ${M.bmMaxDate}까지 들어 있어 마지막 달 배민 매출은 며칠 덜 잡혀 있습니다.</span></div>`);
+
+  const ms = periodMonths();
+  const salesSeries = CHANNELS.map(c => ({ name: c.name, color: c.color, values: rows.map(r => r[c.k]) }));
+  const costM = costByMonth(p => !isPersonal(p.cat) && !isAsset(p.cat));
+  const profitVals = rows.map(r => r.total - costM[r.m]);
+
+  main.innerHTML = `<section class="panel fade">
+    <div class="kpis">
+      ${kpi("총매출", eok(sales), `${ms.length}개월 · VAT 포함`)}
+      ${kpi("사업 비용", eok(cost), `생활비 ${man(personal)}${asset ? ` · 자산구입 ${eok(asset)} 별도` : ""} 제외`)}
+      ${kpi(hasLabor ? "추정 이익" : "추정 이익 (인건비 전)", `<span class="${profit < 0 ? "neg" : ""}">${eok(profit)}</span>`, `이익률 ${pct(profit, sales)}`)}
+      ${kpi("배달앱 비중", pct(deliv, sales), `배달 매출 ${eok(deliv)}`)}
+      ${vatOut != null ? kpi("부가세 (참고)", eok(vatOut - vatIn), `매출세액 ${man(vatOut)} − 매입세액 ${man(vatIn)}`) : ""}
+    </div>
+    ${notes.length ? `<div class="notes">${notes.join("")}</div>` : ""}
+    <div class="grid g2">
+      ${box("월별 매출", `<div id="c-sales"></div>`, "", "채널별 · 막대에 마우스를 올리면 구성 비율")}
+      ${box("월별 사업 비용", `<div id="c-cost"></div>`, "", "상위 항목 · 생활비·자산구입 제외")}
+    </div>
+    <div class="grid g2">
+      ${box(hasLabor ? "월별 추정 이익" : "월별 추정 이익 (인건비 전)", `<div id="c-profit"></div>`, "", "매출 − 사업 비용")}
+      ${box("매출 대비 비용 구성", `<div id="cost-share"></div>`, "", "선택한 기간 · 사업 비용 기준")}
+    </div>
+  </section>`;
+  stackedBars(document.getElementById("c-sales"), rows.map(r => mLabel(r.m)), salesSeries, { topLabels: true, label: "월별 채널 매출" });
+  const { series } = costSeries(rows.map(r => r.m));
+  stackedBars(document.getElementById("c-cost"), rows.map(r => mLabel(r.m)), series, { topLabels: true, label: "월별 비용" });
+  signedBars(document.getElementById("c-profit"), rows.map(r => mLabel(r.m)), profitVals, { name: "추정 이익", color: "var(--s6)", extra: i => `<div class="row"><span>매출</span><span>${fmt(rows[i].total)}</span></div><div class="row"><span>비용</span><span>${fmt(costM[rows[i].m])}</span></div>` });
+  const byCat = groupSum(biz, p => p.cat).sort((a, b) => b.value - a.value);
+  document.getElementById("cost-share").innerHTML = hbars(byCat.slice(0, 10).map(c => ({ label: c.label, value: c.value })), "var(--s1)", sales) + `<div class="small muted">비율은 매출 대비. 총비용 ${eok(cost)} = 매출의 ${pct(cost, sales)}</div>`;
+}
+
+function groupSum(rows, keyFn, valFn = p => p.total) {
+  const o = {}; for (const r of rows) { const k = keyFn(r); o[k] = (o[k] || 0) + valFn(r); }
+  return Object.entries(o).map(([label, value]) => ({ label, value }));
+}
+function costSeries(months) {
+  const biz = M.purchases.filter(p => months.includes(p.date.slice(0, 7)) && !isPersonal(p.cat) && !isAsset(p.cat));
+  const top = groupSum(biz, p => p.cat).sort((a, b) => b.value - a.value).slice(0, 7).map(c => c.label);
+  const colors = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)", "var(--s7)"];
+  const series = top.map((c, i) => ({ name: c, color: colors[i], values: months.map(m => sum(biz.filter(p => p.cat === c && p.date.startsWith(m)), p => p.total)) }));
+  const rest = months.map(m => sum(biz.filter(p => !top.includes(p.cat) && p.date.startsWith(m)), p => p.total));
+  if (rest.some(v => v)) series.push({ name: "그 밖의 항목", color: "var(--other)", values: rest });
+  return { series, top };
+}
+
+/* ============================================================ 매출 */
+function renderSales() {
+  const all = salesByChannel(); const rows = all.filter(r => periodMonths().includes(r.m));
+  const tot = Object.fromEntries(CHANNELS.map(c => [c.k, sum(rows, r => r[c.k])])); tot.total = sum(rows, r => r.total);
+  const ms = periodMonths();
+  const cpOrders = sum(ms, m => M.cp.orders[m]), cpGross = sum(ms, m => M.cp.gross[m]);
+  const heatM = Array.from({ length: 7 }, () => Array(24).fill(0)), heatA = Array.from({ length: 7 }, () => Array(24).fill(0));
+  for (const r of DATA.coupang) { if (!ms.includes(r[1].slice(0, 7))) continue; const s = r[2] + r[3] + r[4]; if (s <= 0) continue; const d = new Date(r[1].replace(" ", "T")); const wd = (d.getDay() + 6) % 7; heatM[wd][d.getHours()]++; heatA[wd][d.getHours()] += s; }
+  const wdTot = heatM.map(r => sum(r)); const days = ["월", "화", "수", "목", "금", "토", "일"];
+  const bestDay = wdTot.indexOf(Math.max(...wdTot));
+  const hourTot = Array.from({ length: 24 }, (_, h) => sum(heatM, r => r[h])); const bestHour = hourTot.indexOf(Math.max(...hourTot));
+
+  main.innerHTML = `<section class="panel fade">
+    <div class="kpis">${CHANNELS.map(c => kpi(c.name, eok(tot[c.k]), `비중 ${pct(tot[c.k], tot.total)}`)).join("")}</div>
+    ${box("채널별 월 매출", table([{ t: "월" }, ...CHANNELS.map(c => ({ t: c.name, n: 1 })), { t: "합계", n: 1 }, { t: "전월 대비", n: 1 }],
+      rows.map(r => { const prev = all[all.findIndex(x => x.m === r.m) - 1]; const ch = prev ? (r.total / prev.total - 1) * 100 : null;
+        return `<tr>${td(mLabel(r.m))}${CHANNELS.map(c => td(fmt(r[c.k]), 1)).join("")}${td(`<b>${fmt(r.total)}</b>`, 1)}${td(ch == null ? "–" : `<span class="${ch < 0 ? "neg" : "pos"}">${ch > 0 ? "+" : ""}${ch.toFixed(1)}%</span>`, 1)}</tr>`; })
+      .concat(`<tr class="total">${td("합계")}${CHANNELS.map(c => td(fmt(tot[c.k]), 1)).join("")}${td(fmt(tot.total), 1)}${td("", 1)}</tr>`)),
+      "", state.basis === "ledger" ? "세무사 장부 기준: 장부 매출 합계에 맞추기 위해 배민·요기요 정산서 금액 중 장부를 넘는 부분을 홀 현금영수증에서 뺐습니다." : "플랫폼 정산서 기준: 배민·쿠팡·요기요는 각 정산 원자료, 홀은 홈택스 카드·현금영수증 매출(쿠팡 현금결제분 제외)입니다.")}
+    <div class="grid g2">
+      ${box("채널 구성 추이", `<div id="c-mix"></div>`, "", "월별 매출 비중")}
+      ${box("쿠팡이츠 주문 패턴", `<div id="c-heat"></div><div class="small muted">주문 ${fmt(cpOrders)}건 · 객단가 ${fmt(cpGross / Math.max(cpOrders, 1))}원 · 가장 바쁜 요일 ${days[bestDay]}요일 · 가장 바쁜 시간 ${bestHour}시대</div>`, "", "요일 × 시간대 주문 수 (쿠팡이츠 주문 단위 자료)")}
+    </div>
+    ${box("배달앱 주문 수·객단가", table([{ t: "월" }, { t: "쿠팡 주문", n: 1 }, { t: "쿠팡 객단가", n: 1 }, { t: "쿠팡 환불", n: 1 }, { t: "요기요 주문", n: 1 }, { t: "요기요 객단가", n: 1 }],
+      ms.map(m => `<tr>${td(mLabel(m))}${td(fmt(M.cp.orders[m]), 1)}${td(fmt(M.cp.gross[m] / Math.max(M.cp.orders[m], 1)), 1)}${td(M.cp.refunds[m] + "건 · " + fmt(M.cp.refund[m]), 1)}${td(fmt(M.yg.orders[m]), 1)}${td(M.yg.orders[m] ? fmt(M.yg.gross[m] / M.yg.orders[m]) : "–", 1)}</tr>`)), "", "배민 정산서는 일자별 합계라 주문 수가 없습니다.")}
+  </section>`;
+  const shares = CHANNELS.map(c => ({ name: c.name, color: c.color, values: rows.map(r => r.total ? r[c.k] / r.total * 100 : 0) }));
+  stackedBars(document.getElementById("c-mix"), rows.map(r => mLabel(r.m)), shares, { label: "채널 비중", max: 100, axis: v => Math.round(v) + "%",
+    tip: i => `<div class="t">${mLabel(rows[i].m)}</div>` + CHANNELS.slice().reverse().map(c => `<div class="row"><span><i style="background:${c.color}"></i>${c.name}</span><span>${pct(rows[i][c.k], rows[i].total)}</span></div>`).join("") });
+  heatmap(document.getElementById("c-heat"), heatM, heatA);
+}
+
+/* ============================================================ 배달앱 */
+function renderDelivery() {
+  const ms = periodMonths();
+  const S = (obj) => sum(ms, m => obj[m]);
+  const bmGross = S(M.bmGross), bmPayout = S(M.bm.payout), bmMeet = -S(M.bm.meetCollected);
+  const bmFee = sum(ms, m => -(M.bm.commission[m] + M.bm.delivery[m] + M.bm.payFee[m] + M.bm.club[m] + M.bm.vat[m] + M.bm.ad[m] + M.bm.order[m]));
+  const cpGross = S(M.cp.gross), cpFee = S(M.cpFee) + S(M.cpAds) + S(M.cpRebate);
+  const ygGross = S(M.yg.gross), ygFee = S(M.yg.fee);
+  const plat = [
+    { name: "배달의민족", gross: bmGross, fee: bmFee, net: bmPayout + bmMeet, note: `입금 ${fmt(bmPayout)} + 만나서결제 ${fmt(bmMeet)}` },
+    { name: "쿠팡이츠", gross: cpGross, fee: cpFee, net: cpGross - cpFee, note: "수수료는 세금계산서(수수료+광고−영중소 환급) 기준 추정" },
+    { name: "요기요", gross: ygGross, fee: ygFee, net: ygGross - ygFee, note: "주문내역의 차감비용 합계" },
+  ];
+  const fk = [["commission", "중개이용료"], ["delivery", "배달비"], ["payFee", "결제수수료"], ["vat", "수수료 부가세"], ["ad", "우리가게클릭(광고)"], ["club", "배민클럽 할인(순)"]];
+  const fcolors = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s7)"];
+  const types = Object.entries(M.bmByType).filter(([t]) => t !== "기타");
+
+  main.innerHTML = `<section class="panel fade">
+    ${box("플랫폼별 수수료 비교", table([{ t: "플랫폼" }, { t: "주문금액(고객 결제)", n: 1 }, { t: "수수료·배달비 등", n: 1 }, { t: "수수료율", n: 1 }, { t: "실수령", n: 1 }, { t: "비고" }],
+      plat.map(p => `<tr>${td(`<b>${p.name}</b>`)}${td(fmt(p.gross), 1)}${td(fmt(p.fee), 1)}${td(`<b>${pct(p.fee, p.gross)}</b>`, 1)}${td(fmt(p.net), 1)}${td(`<span class="small muted">${p.note}</span>`, 0, "wrap-t")}</tr>`)
+      .concat(`<tr class="total">${td("합계")}${td(fmt(sum(plat, p => p.gross)), 1)}${td(fmt(sum(plat, p => p.fee)), 1)}${td(pct(sum(plat, p => p.fee), sum(plat, p => p.gross)), 1)}${td(fmt(sum(plat, p => p.net)), 1)}${td("")}</tr>`)),
+      "", "수수료율 = 플랫폼이 떼어 간 돈 ÷ 고객이 낸 돈")}
+    <div class="grid g2">
+      ${box("배민 월별 차감 내역", `<div id="c-bmfee"></div>`, "", "주문일 기준 · 정산명세서 상세")}
+      ${box("쿠팡이츠 월별 수수료", `<div id="c-cpfee"></div>`, "", "세금계산서 기준 · 영중소 환급 차감")}
+    </div>
+    ${box("배민 주문유형별 수익성", table([{ t: "유형" }, { t: "주문금액", n: 1 }, { t: "중개이용료", n: 1 }, { t: "배달비", n: 1 }, { t: "결제수수료", n: 1 }, { t: "부가세", n: 1 }, { t: "총 차감", n: 1 }, { t: "차감률", n: 1 }],
+      types.map(([t, o]) => { const g = o.orderNow + o.orderMeet + o.tipNow + o.tipMeet + o.refund, f = M.bmFeeOf(o);
+        return `<tr>${td(t)}${td(fmt(g), 1)}${td(fmt(-o.commission), 1)}${td(fmt(-o.delivery), 1)}${td(fmt(-o.payFee), 1)}${td(fmt(-o.vat), 1)}${td(fmt(f), 1)}${td(`<b>${pct(f, g)}</b>`, 1)}</tr>`; })), "", "알뜰·한집배달은 배달비를 가게가 부담해 차감률이 높게 나옵니다. 유형별 표는 전체 기간 기준입니다.")}
+    ${box("배민 월별 정산", table([{ t: "월" }, { t: "주문금액", n: 1 }, ...fk.map(([, n]) => ({ t: n, n: 1 })), { t: "보정", n: 1 }, { t: "입금액", n: 1 }, { t: "만나서결제", n: 1 }],
+      ms.map(m => `<tr>${td(mLabel(m))}${td(fmt(M.bmGross[m]), 1)}${fk.map(([k]) => td(signed(-M.bm[k][m]), 1)).join("")}${td(signed(M.bm.adjust[m]), 1)}${td(`<b>${fmt(M.bm.payout[m])}</b>`, 1)}${td(fmt(-M.bm.meetCollected[m]), 1)}</tr>`)), "", "차감 항목은 양수가 가게가 낸 금액입니다.")}
+    ${box("요기요 차감 항목", hbars(Object.entries(M.ygCostNames).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: k.replace("(VAT포함)", ""), value: v })), "var(--s5)"), "", "주문내역 전체 기간")}
+  </section>`;
+  stackedBars(document.getElementById("c-bmfee"), ms.map(mLabel), fk.map(([k, n], i) => ({ name: n, color: fcolors[i], values: ms.map(m => Math.max(0, -M.bm[k][m])) })), { topLabels: true, label: "배민 차감" });
+  stackedBars(document.getElementById("c-cpfee"), ms.map(mLabel), [
+    { name: "중개·배달 수수료", color: "var(--s1)", values: ms.map(m => M.cpFee[m] + M.cpRebate[m]) },
+    { name: "광고(Product Ads)", color: "var(--s2)", values: ms.map(m => M.cpAds[m]) }], { topLabels: true, label: "쿠팡 수수료" });
+}
+
+/* ============================================================ 매입 */
+function catOptions(sel) { return CATEGORIES.map(c => `<option${c.id === sel ? " selected" : ""}>${c.id}</option>`).join(""); }
+function renderPurchase() {
+  const rows = costRows();
+  const f = state.purchaseFilter;
+  const total = sum(rows, p => p.total);
+  const biz = rows.filter(p => !isPersonal(p.cat) && !isAsset(p.cat));
+  const per = rows.filter(p => isPersonal(p.cat)), asset = rows.filter(p => isAsset(p.cat));
+  const byCat = groupSum(rows, p => p.cat).sort((a, b) => b.value - a.value);
+  const vendors = groupSum(biz, p => p.vendor).sort((a, b) => b.value - a.value).slice(0, 15);
+  const vCount = {}; biz.forEach(p => vCount[p.vendor] = (vCount[p.vendor] || 0) + 1);
+  const ms = periodMonths();
+  const { series } = costSeries(ms);
+  const tax = groupSum(rows.filter(p => p.src === "장부"), p => ({ "51": "세금계산서(과세)", "53": "계산서(면세)", "54": "불공제", "57": "카드(과세)", "58": "카드(면세)", "61": "현금영수증" }[p.type.slice(0, 2)] || p.type));
+  const vatBy = groupSum(rows.filter(p => p.src === "장부"), p => /^(51|57|61)/.test(p.type) ? "공제 가능 매입세액" : "공제 안 됨", p => p.vat);
+
+  const list = rows.filter(p => (!f.cat || p.cat === f.cat) && (!f.src || p.src === f.src) && (!f.q || (p.vendor + " " + p.item).toLowerCase().includes(f.q.toLowerCase())))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  main.innerHTML = `<section class="panel fade">
+    <div class="kpis">
+      ${kpi("전체 매입", eok(total), `${fmt(rows.length)}건 · VAT 포함`)}
+      ${kpi("사업 비용", eok(sum(biz, p => p.total)), `${pct(sum(biz, p => p.total), total)}`)}
+      ${kpi("생활비(추정)", eok(sum(per, p => p.total)), `${per.length}건 · 데이터·분류 탭에서 조정`)}
+      ${kpi("자산 구입", eok(sum(asset, p => p.total)), asset.map(a => esc(a.vendor)).slice(0, 1).join("") || "없음")}
+    </div>
+    <div class="grid g2">
+      ${box("항목별 매입", hbars(byCat.map(c => ({ label: c.label + (isPersonal(c.label) ? " (생활비)" : isAsset(c.label) ? " (자산)" : ""), value: c.value, color: isPersonal(c.label) ? "var(--other)" : isAsset(c.label) ? "var(--s7)" : "var(--s1)" })), "var(--s1)", total), "", "회색 = 생활비로 분류된 항목")}
+      ${box("월별 사업 비용 추이", `<div id="c-cost2"></div>`)}
+    </div>
+    <div class="grid g2">
+      ${box("주요 거래처 (사업 비용 상위 15)", table([{ t: "거래처" }, { t: "항목" }, { t: "건수", n: 1 }, { t: "금액", n: 1 }, { t: "비중", n: 1 }],
+        vendors.map(v => { const c = biz.find(p => p.vendor === v.label).cat; return `<tr>${td(esc(v.label))}${td(`<span class="small muted">${c}</span>`)}${td(vCount[v.label], 1)}${td(fmt(v.value), 1)}${td(pct(v.value, sum(biz, p => p.total)), 1)}</tr>`; })))}
+      ${box("증빙 유형·부가세", `${table([{ t: "증빙" }, { t: "금액", n: 1 }], tax.sort((a, b) => b.value - a.value).map(t => `<tr>${td(t.label)}${td(fmt(t.value), 1)}</tr>`))}
+        ${table([{ t: "매입 부가세" }, { t: "금액", n: 1 }], vatBy.map(t => `<tr>${td(t.label)}${td(fmt(t.value), 1)}</tr>`))}`, "", "세무사 장부 분만")}
+    </div>
+    ${box("매입 상세", `<div class="toolbar">
+        <input type="search" id="p-q" placeholder="거래처·품명 검색" value="${esc(f.q)}">
+        <select id="p-cat"><option value="">모든 항목</option>${CATEGORIES.map(c => `<option${c.id === f.cat ? " selected" : ""}>${c.id}</option>`).join("")}</select>
+        <select id="p-src"><option value="">모든 출처</option>${["장부", "카드", "통장"].map(s => `<option${s === f.src ? " selected" : ""}>${s}</option>`).join("")}</select>
+        <span class="small muted">${fmt(list.length)}건 · ${fmt(sum(list, p => p.total))}원</span>
+      </div>
+      ${table([{ t: "날짜" }, { t: "거래처" }, { t: "품명" }, { t: "증빙" }, { t: "금액", n: 1 }, { t: "항목 (바꾸면 같은 거래처 전체 적용)" }, { t: "구분" }],
+        list.slice(0, 400).map(p => `<tr>${td(p.date)}${td(esc(p.vendor))}${td(`<span class="small">${esc(p.item)}</span>`, 0, "wrap-t")}${td(`<span class="small muted">${esc(p.type)}${p.card ? " · " + esc(p.card) : ""}</span>`)}${td(fmt(p.total), 1)}${td(p.src === "통장" ? `<span class="small">${p.cat}</span>` : `<select data-vendor="${esc(p.vendor)}" aria-label="항목">${catOptions(p.cat)}</select>`)}${td(isAsset(p.cat) ? `<span class="pill biz">자산</span>` : isPersonal(p.cat) ? `<span class="pill per">생활비</span>` : `<span class="pill biz">사업</span>`)}</tr>`), { scroll: true })}
+      ${list.length > 400 ? `<div class="small muted">처음 400건만 표시합니다. 검색으로 좁혀 보세요.</div>` : ""}`)}
+  </section>`;
+  stackedBars(document.getElementById("c-cost2"), ms.map(mLabel), series, { topLabels: true, label: "월별 비용" });
+  const q = document.getElementById("p-q");
+  q.addEventListener("input", () => { f.q = q.value; debounce(() => { renderPurchase(); const n = document.getElementById("p-q"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); });
+  document.getElementById("p-cat").addEventListener("change", e => { f.cat = e.target.value; renderPurchase(); });
+  document.getElementById("p-src").addEventListener("change", e => { f.src = e.target.value; renderPurchase(); });
+  main.querySelectorAll("select[data-vendor]").forEach(s => s.addEventListener("change", () => setOverride(s.dataset.vendor, s.value)));
+}
+let _deb; function debounce(fn) { clearTimeout(_deb); _deb = setTimeout(fn, 250); }
+function setOverride(vendor, cat) { state.overrides[vendor] = cat; store.set("overrides", state.overrides); recompute(); }
+
+/* ============================================================ 카드 */
+function renderCard() {
+  const cards = M.cards.slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  if (!cards.length) { main.innerHTML = `<div class="empty">신용카드 이용내역 파일이 없습니다.</div>`; return; }
+  const cat = c => classifyVendor(c.vendor, c.inst > 1 ? "" : "", true);
+  const monthsC = [...new Set(cards.map(c => c.date.slice(0, 7)))].sort();
+  const bizV = monthsC.map(m => sum(cards.filter(c => c.date.startsWith(m) && !isPersonal(cat(c))), c => c.amount));
+  const perV = monthsC.map(m => sum(cards.filter(c => c.date.startsWith(m) && isPersonal(cat(c))), c => c.amount));
+  const total = sum(cards, c => c.amount), per = sum(perV);
+  const byCat = groupSum(cards, c => cat(c), c => c.amount).sort((a, b) => b.value - a.value);
+  main.innerHTML = `<section class="panel fade">
+    <div class="kpis">
+      ${kpi("카드 사용액", eok(total), `${cards.length}건 · ${cards[cards.length - 1].date} ~ ${cards[0].date}`)}
+      ${kpi("사업용", eok(total - per), pct(total - per, total))}
+      ${kpi("생활비(추정)", eok(per), pct(per, total))}
+      ${kpi("장부 미반영", eok(sum(cards.filter(c => !c.inLedger && M.months.includes(c.date.slice(0, 7))), c => c.amount)), `${cards.filter(c => !c.inLedger && M.months.includes(c.date.slice(0, 7))).length}건 · 장부 기간 안인데 매입장에 없는 사용분`)}
+    </div>
+    <div class="grid g2">
+      ${box("월별 카드 사용", `<div id="c-card"></div>`, "", "사업용 / 생활비 구분")}
+      ${box("사용처 항목", hbars(byCat.map(c => ({ label: c.label, value: c.value, color: isPersonal(c.label) ? "var(--other)" : "var(--s1)" })), "var(--s1)", total))}
+    </div>
+    ${box("카드 이용내역", table([{ t: "날짜" }, { t: "가맹점" }, { t: "금액", n: 1 }, { t: "할부" }, { t: "항목 (가맹점 전체 적용)" }, { t: "구분" }, { t: "장부" }],
+      cards.map(c => { const k = cat(c); return `<tr>${td(c.date + (c.time ? ` <span class="muted small">${c.time}</span>` : ""))}${td(esc(c.vendor))}${td(fmt(c.amount), 1)}${td(c.inst > 1 ? c.inst + "개월" : "일시불")}${td(`<select data-vendor="${esc(c.vendor)}" aria-label="항목">${catOptions(k)}</select>`)}${td(isPersonal(k) ? `<span class="pill per">생활비</span>` : `<span class="pill biz">사업</span>`)}${td(c.inLedger ? `<span class="pill ok">반영됨</span>` : M.months.includes(c.date.slice(0, 7)) ? `<span class="pill warn">미반영</span>` : `<span class="pill biz">장부 기간 밖</span>`)}</tr>`; }), { scroll: true }),
+      "", "장부 ‘반영됨’은 세무사 매입장에 같은 날짜(±3일)·금액의 카드 매입이 있는 건입니다. 미반영 건 중 사업용은 비용에 더해집니다.")}
+  </section>`;
+  stackedBars(document.getElementById("c-card"), monthsC.map(mLabel), [{ name: "사업용", color: "var(--s1)", values: bizV }, { name: "생활비", color: "var(--other)", values: perV }], { topLabels: true, label: "카드 사용" });
+  main.querySelectorAll("select[data-vendor]").forEach(s => s.addEventListener("change", () => setOverride(s.dataset.vendor, s.value)));
+}
+
+/* ============================================================ 통장 */
+function renderBank() {
+  const bank = M.bank;
+  const drop = `<div class="drop" id="drop">
+      <h2>사업자 통장 거래내역 올리기</h2>
+      <div class="small muted">은행 앱·인터넷뱅킹에서 받은 엑셀(xlsx, xls) 또는 CSV 파일을 끌어다 놓거나 선택하세요.<br>거래일·적요·입금·출금·잔액 열을 자동으로 찾습니다. 파일은 이 브라우저 안에서만 읽고 저장합니다.</div>
+      <div class="toolbar" style="justify-content:center"><label class="btn primary" for="bank-file">파일 선택</label><input type="file" id="bank-file" accept=".xlsx,.xls,.csv" multiple hidden>
+      ${bank.length ? `<button class="btn" type="button" id="bank-clear">통장 내역 지우기</button>` : ""}</div>
+      <div class="small" id="bank-msg"></div>
+    </div>`;
+  if (!bank.length) {
+    main.innerHTML = `<section class="panel fade">${drop}
+      ${box("통장 내역을 올리면 보이는 것", `<ul class="small" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+        <li>입금: 카드사 매출 입금, 배민·쿠팡·요기요 정산 입금을 자동 구분</li>
+        <li>출금: 인건비(사람 이름 이체), 재료비 이체, 공과금, 임대료, 세금·4대보험, 카드대금</li>
+        <li>인건비와 세금·4대보험은 요약 탭의 이익 계산에 자동 반영 (재료 이체는 세금계산서와 중복이라 제외)</li>
+        <li>적요별로 항목을 직접 바꿀 수 있고, 바꾼 내용은 이 브라우저에 저장</li></ul>`)}
+    </section>`;
+    bindBankUpload(); return;
+  }
+  const rows = bank.filter(b => inPeriod(b.date));
+  rows.forEach(b => b.cat = classifyBank(b));
+  const ins = rows.filter(b => b.in > 0), outs = rows.filter(b => b.out > 0);
+  const ms = [...new Set(bank.map(b => b.date.slice(0, 7)))].sort().filter(m => periodMonths().includes(m) || state.period === "all");
+  const inCat = groupSum(ins, b => b.cat, b => b.in).sort((a, b) => b.value - a.value);
+  const outCat = groupSum(outs, b => b.cat, b => b.out).sort((a, b) => b.value - a.value);
+  const f = state.bankFilter;
+  const list = rows.filter(b => (!f.cat || b.cat === f.cat) && (!f.q || b.desc.toLowerCase().includes(f.q.toLowerCase()))).sort((a, b) => b.date.localeCompare(a.date));
+  const labor = sum(outs.filter(b => b.cat === "인건비"), b => b.out);
+  main.innerHTML = `<section class="panel fade">
+    <div class="kpis">
+      ${kpi("입금 합계", eok(sum(ins, b => b.in)), `${ins.length}건`)}
+      ${kpi("출금 합계", eok(sum(outs, b => b.out)), `${outs.length}건`)}
+      ${kpi("인건비", eok(labor), `${outs.filter(b => b.cat === "인건비").length}건 · 이익 계산에 반영`)}
+      ${kpi("순 현금흐름", `<span class="${sum(ins, b => b.in) - sum(outs, b => b.out) < 0 ? "neg" : ""}">${eok(sum(ins, b => b.in) - sum(outs, b => b.out))}</span>`, "입금 − 출금")}
+    </div>
+    <div class="grid g2">
+      ${box("월별 입출금", `<div id="c-bank"></div>`)}
+      ${box("입금 구성", hbars(inCat.map(c => ({ label: c.label, value: c.value })), "var(--s3)", sum(ins, b => b.in)))}
+    </div>
+    ${box("출금 구성", hbars(outCat.map(c => ({ label: c.label, value: c.value })), "var(--s2)", sum(outs, b => b.out)), "", "카드대금은 카드 내역과 중복이라 비용에 넣지 않습니다.")}
+    ${box("거래 내역", `<div class="toolbar"><input type="search" id="b-q" placeholder="적요 검색" value="${esc(f.q)}">
+        <select id="b-cat"><option value="">모든 항목</option>${[...BANK_IN_CATS, ...BANK_OUT_CATS].map(c => `<option${c === f.cat ? " selected" : ""}>${c}</option>`).join("")}</select>
+        <span class="small muted">${fmt(list.length)}건</span></div>
+      ${table([{ t: "날짜" }, { t: "적요" }, { t: "입금", n: 1 }, { t: "출금", n: 1 }, { t: "잔액", n: 1 }, { t: "항목 (같은 적요 전체 적용)" }],
+        list.slice(0, 500).map(b => `<tr>${td(b.date)}${td(esc(b.desc), 0, "wrap-t")}${td(b.in ? fmt(b.in) : "", 1)}${td(b.out ? fmt(b.out) : "", 1)}${td(fmt(b.balance), 1)}${td(`<select data-desc="${esc(b.desc)}" aria-label="항목">${(b.in > 0 ? BANK_IN_CATS : BANK_OUT_CATS).map(c => `<option${c === b.cat ? " selected" : ""}>${c}</option>`).join("")}</select>`)}</tr>`), { scroll: true })}`)}
+    ${drop}
+  </section>`;
+  stackedBars(document.getElementById("c-bank"), ms.map(mLabel), [
+    { name: "입금", color: "var(--s3)", values: ms.map(m => sum(ins.filter(b => b.date.startsWith(m)), b => b.in)) }], { label: "월별 입금", h: 180 });
+  const cb = document.getElementById("c-bank");
+  const outDiv = document.createElement("div"); cb.appendChild(outDiv);
+  stackedBars(outDiv, ms.map(mLabel), [{ name: "출금", color: "var(--s2)", values: ms.map(m => sum(outs.filter(b => b.date.startsWith(m)), b => b.out)) }], { label: "월별 출금", h: 180 });
+  cb.insertAdjacentHTML("afterbegin", `<div class="legend"><span><i style="background:var(--s3)"></i>입금 (위)</span><span><i style="background:var(--s2)"></i>출금 (아래)</span></div>`);
+  const q = document.getElementById("b-q");
+  q.addEventListener("input", () => { f.q = q.value; debounce(() => { renderBank(); const n = document.getElementById("b-q"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); });
+  document.getElementById("b-cat").addEventListener("change", e => { f.cat = e.target.value; renderBank(); });
+  main.querySelectorAll("select[data-desc]").forEach(s => s.addEventListener("change", () => { state.bankOverrides[s.dataset.desc] = s.value; store.set("bankOverrides", state.bankOverrides); recompute(); }));
+  bindBankUpload();
+}
+
+// --- 통장 파일 읽기 (SheetJS)
+const B_DATE = ["거래일시", "거래일자", "거래일", "일자", "날짜"], B_IN = ["입금", "맡기신"], B_OUT = ["출금", "찾으신", "지급"], B_DESC = ["적요", "내용", "기재내용", "거래내용", "받는분", "보낸분", "메모", "의뢰인", "수취인"];
+function toNum(v) { if (typeof v === "number") return Math.round(v); const s = String(v ?? "").replace(/[,원\s]/g, ""); const n = parseFloat(s); return isFinite(n) ? Math.round(n) : 0; }
+function toYmd(v) {
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "number" && v > 30000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return d.toISOString().slice(0, 10); }
+  const m = String(v ?? "").match(/(\d{4})[.\-/년\s]*(\d{1,2})[.\-/월\s]*(\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null;
+}
+function parseBankSheet(rows) {
+  let h = -1;
+  for (let i = 0; i < Math.min(30, rows.length); i++) { const j = rows[i].map(x => String(x ?? "")).join(" "); if (B_DATE.some(k => j.includes(k)) && B_IN.some(k => j.includes(k)) && B_OUT.some(k => j.includes(k)) && j.includes("잔액")) { h = i; break; } }
+  if (h < 0) return [];
+  const head = rows[h].map(x => String(x ?? "").trim());
+  const find = keys => head.findIndex(c => keys.some(k => c.includes(k)));
+  const di = find(B_DATE), ii = find(B_IN), oi = find(B_OUT), bi = find(["잔액"]);
+  const descIx = head.map((c, i) => B_DESC.some(k => c.includes(k)) ? i : -1).filter(i => i >= 0);
+  const out = [];
+  for (const r of rows.slice(h + 1)) {
+    const d = toYmd(r[di]); if (!d) continue;
+    const inc = toNum(r[ii]), o = toNum(r[oi]); if (!inc && !o) continue;
+    out.push({ date: d, desc: descIx.map(i => String(r[i] ?? "").trim()).filter(Boolean).join(" "), in: inc, out: o, balance: bi >= 0 ? toNum(r[bi]) : 0 });
+  }
+  return out;
+}
+function bindBankUpload() {
+  const input = document.getElementById("bank-file"), drop = document.getElementById("drop"), msg = document.getElementById("bank-msg");
+  const handle = async files => {
+    if (typeof XLSX === "undefined") { msg.textContent = "엑셀 읽기 도구를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 새로고침하세요."; return; }
+    let added = [];
+    for (const file of files) {
+      try {
+        const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+        for (const name of wb.SheetNames) added = added.concat(parseBankSheet(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: "" })));
+      } catch (e) { msg.textContent = `${file.name}: 읽지 못했습니다. 암호가 걸린 파일이면 암호를 풀고 다시 저장해서 올려 주세요.`; return; }
+    }
+    if (!added.length) { msg.textContent = "거래일·입금·출금·잔액 열을 찾지 못했습니다. 은행에서 받은 원본 엑셀인지 확인해 주세요."; return; }
+    const key = b => [b.date, b.desc, b.in, b.out, b.balance].join("|");
+    const seen = new Set(state.bank.map(key));
+    const fresh = added.filter(b => !seen.has(key(b)) && seen.add(key(b)));
+    state.bank = state.bank.concat(fresh).sort((a, b) => a.date.localeCompare(b.date));
+    store.set("bank", state.bank);
+    recompute();
+    const m2 = document.getElementById("bank-msg"); if (m2) m2.textContent = `${fresh.length}건을 추가했습니다${added.length - fresh.length ? ` (중복 ${added.length - fresh.length}건 제외)` : ""}.`;
+  };
+  input.addEventListener("change", () => handle([...input.files]));
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); handle([...e.dataTransfer.files]); });
+  const clr = document.getElementById("bank-clear");
+  if (clr) clr.addEventListener("click", () => {
+    if (clr.dataset.confirm) { state.bank = []; store.set("bank", []); recompute(); return; }
+    clr.dataset.confirm = "1"; clr.textContent = "한 번 더 누르면 지웁니다"; clr.classList.add("primary");
+  });
+}
+
+/* ============================================================ 데이터·분류 */
+function renderData() {
+  const ms = M.months;
+  const rows = salesByChannel();
+  const platTotal = sum(rows, r => r.total);
+  main.innerHTML = `<section class="panel fade">
+    ${box("분류 설정", `<div class="small muted">항목마다 사업 비용 / 생활비를 정합니다. 생활비로 정한 항목은 비용·이익 계산에서 빠집니다. 바꾼 설정은 이 브라우저에 저장됩니다.</div>
+      <div class="cat-grid">${CATEGORIES.filter(c => !c.asset).map(c => `<div><span>${c.id}</span><button type="button" class="switch ${isPersonal(c.id) ? "per" : ""}" data-cat="${c.id}">${isPersonal(c.id) ? "생활비" : "사업 비용"}</button></div>`).join("")}</div>
+      <div class="toolbar"><button class="btn" type="button" id="reset-rules">분류 초기화</button><span class="small muted">거래처별로 바꾼 항목 ${Object.keys(state.overrides).length}개 · 통장 적요 ${Object.keys(state.bankOverrides).length}개</span></div>`)}
+    ${box("매출 맞춰보기", table([{ t: "구분" }, { t: "세무사 장부", n: 1 }, { t: "원자료", n: 1 }, { t: "차이", n: 1 }, { t: "설명" }], [
+      `<tr>${td("배달의민족")}${td(fmt(M.ledgerBaemin), 1)}${td(fmt(sum(ms, m => M.bmGross[m])), 1)}${td(signed(sum(ms, m => M.bmGross[m]) - M.ledgerBaemin), 1)}${td(`<span class="small muted">정산서 주문금액+배달팁 (주문일 ${DATA.baemin.length ? DATA.baemin.map(r => r.date).filter(Boolean).sort()[0] : ""}~${M.bmMaxDate}, 해당 월만)</span>`, 0, "wrap-t")}</tr>`,
+      `<tr>${td("쿠팡이츠 (카드+기타)")}${td(fmt(M.ledgerCoupang), 1)}${td(fmt(sum(ms, m => M.cp.card[m] + M.cp.etc[m])), 1)}${td(signed(sum(ms, m => M.cp.card[m] + M.cp.etc[m]) - M.ledgerCoupang), 1)}${td(`<span class="small muted">쿠팡 현금결제분 ${fmt(sum(ms, m => M.cp.cash[m]))}원은 홈택스 현금영수증 매출에 들어 있음</span>`, 0, "wrap-t")}</tr>`,
+      `<tr>${td("요기요")}${td(fmt(M.ledgerYogiyo), 1)}${td(fmt(sum(ms, m => M.yg.gross[m])), 1)}${td(signed(sum(ms, m => M.yg.gross[m]) - M.ledgerYogiyo), 1)}${td(`<span class="small muted">주문내역 주문금액+배달료</span>`, 0, "wrap-t")}</tr>`,
+      `<tr class="total">${td("매출 합계")}${td(fmt(M.ledgerSalesTotal), 1)}${td(fmt(platTotal), 1)}${td(signed(platTotal - M.ledgerSalesTotal), 1)}${td(`<span class="small muted">현재 선택: ${state.basis === "ledger" ? "세무사 장부" : "플랫폼 정산서"} 기준</span>`)}</tr>`]))}
+    ${box("읽어 들인 파일", table([{ t: "파일" }, { t: "종류" }, { t: "건수", n: 1 }], DATA.sources.map(s => `<tr>${td(`<span class="small">${esc(s.file)}</span>`, 0, "wrap-t")}${td(s.label)}${td(fmt(s.rows), 1)}</tr>`)
+      .concat(state.bank.length && !DATA.bank.length ? [`<tr>${td("브라우저에서 올린 통장 내역")}${td("사업자 통장 거래내역")}${td(fmt(state.bank.length), 1)}</tr>`] : [])),
+      "", `만든 시각 ${DATA.generated}`)}
+    ${box("계산 방법", `<ul class="small" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+      <li>모든 금액은 부가세 포함 금액입니다.</li>
+      <li>홀 카드 = 세무사 장부의 홈택스 카드매출. 홀 현금영수증 = 홈택스 현금영수증 매출 − 쿠팡이츠 현금결제분${state.basis === "ledger" ? " − 배민·요기요 정산서가 장부보다 많은 금액" : ""}.</li>
+      <li>배민 = 정산명세서 상세의 바로결제·만나서결제 주문금액 + 배달팁 (주문일 기준 월). 쿠팡이츠 = 부가세 신고자료의 판매 − 환불. 요기요 = 주문내역의 주문금액 + 배달료 (환불 제외).</li>
+      <li>비용 = 세무사 매입장 + 장부에 없는 카드 사용분 + 통장의 인건비·세금·4대보험. 생활비로 분류한 항목과 차량 등 자산 구입은 빠집니다.</li>
+      <li>쿠팡이츠 수수료는 정산 상세가 없어 세금계산서(중개 수수료, 광고, 영중소 환급)로 계산합니다.</li></ul>`)}
+  </section>`;
+  main.querySelectorAll("button[data-cat]").forEach(b => b.addEventListener("click", () => { state.personalCats[b.dataset.cat] = !isPersonal(b.dataset.cat); store.set("personalCats", state.personalCats); recompute(); }));
+  const rs = document.getElementById("reset-rules");
+  rs.addEventListener("click", () => {
+    if (!rs.dataset.confirm) { rs.dataset.confirm = "1"; rs.textContent = "한 번 더 누르면 초기화합니다"; rs.classList.add("primary"); return; }
+    state.overrides = {}; state.personalCats = {}; state.bankOverrides = {};
+    store.set("overrides", {}); store.set("personalCats", {}); store.set("bankOverrides", {}); recompute();
+  });
+}
+
+/* ============================================================ 뼈대 */
+const RENDER = { summary: renderSummary, sales: renderSales, delivery: renderDelivery, purchase: renderPurchase, card: renderCard, bank: renderBank, data: renderData };
+function render() {
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === state.tab));
+  document.querySelectorAll("#period-seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.p === state.period));
+  document.querySelectorAll("#basis-seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.basis === state.basis));
+  hideTip();
+  RENDER[state.tab]();
+  main.querySelectorAll("[data-goto]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); state.tab = a.dataset.goto; store.set("tab", state.tab); render(); }));
+}
+function recompute() { M = compute(); render(); }
+
+function init() {
+  if (!DATA) { main.innerHTML = `<div class="empty"><h2>데이터가 없습니다</h2><p>build_data.py 로 엑셀 파일을 변환해 만든 HTML을 열어 주세요.</p></div>`; return; }
+  const yName = DATA.storeName;
+  if (yName) document.getElementById("store-name").textContent = yName;
+  M = compute();
+  const first = M.months[0], last = M.months[M.months.length - 1];
+  document.getElementById("store-eyebrow").textContent = `매입·매출 분석 · ${first ? first.slice(0, 4) + "년 " + mLabel(first) + "–" + mLabel(last) : ""}`;
+  document.getElementById("gen-info").textContent = `${DATA.sources.length}개 파일 · ${DATA.generated} 기준`;
+  const seg = document.getElementById("period-seg");
+  seg.innerHTML = `<button type="button" data-p="all">전체</button>` + M.months.map(m => `<button type="button" data-p="${m}">${mLabel(m)}</button>`).join("");
+  seg.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.period = b.dataset.p; render(); });
+  document.getElementById("basis-seg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.basis = b.dataset.basis; store.set("basis", state.basis); render(); });
+  document.getElementById("tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.tab = b.dataset.tab; store.set("tab", state.tab); render(); });
+  if (!RENDER[state.tab]) state.tab = "summary";
+  render();
+}
+init();
+</script>
