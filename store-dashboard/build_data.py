@@ -10,7 +10,11 @@
   - 요기요 주문내역
   - 세무사 매입매출장 (매출/매입 시트)
   - 신용카드 이용내역 (카드사 두 가지 양식)
-  - 사업자 통장 거래내역 (입금/출금/잔액 열이 있는 양식)
+  - 사업자 통장 거래내역 (입금/출금/잔액 열이 있는 엑셀 또는 CSV)
+
+폴더에 rules.json 을 두면 통장 분류 규칙을 덧붙일 수 있다.
+    {"bank": [["^홍길동$", "인건비"], ["^김사장$", "사장 인출"], ["^박납품$", "식자재", "장부"]]}
+    세 번째 값 "장부" 는 세무사 장부에 이미 있는 거래라 비용에 다시 더하지 않는다는 뜻.
 """
 import argparse
 import io
@@ -72,7 +76,16 @@ def open_workbook_bytes(path, password):
     return raw
 
 
-def sheets_as_frames(data):
+def sheets_as_frames(data, suffix=".xlsx"):
+    if suffix == ".csv":  # 은행 CSV는 대개 CP949(EUC-KR)
+        for enc in ("utf-8-sig", "cp949"):
+            try:
+                text = data.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        return {"csv": pd.read_csv(io.StringIO(text), header=None, dtype=object, skip_blank_lines=False,
+                                   on_bad_lines="skip", engine="python")}
     return pd.read_excel(io.BytesIO(data), sheet_name=None, header=None, dtype=object)
 
 
@@ -274,7 +287,8 @@ def parse_card_b(frames):
 BANK_DATE = ("거래일시", "거래일자", "거래일", "일자", "날짜")
 BANK_IN = ("입금", "맡기신", "입금액")
 BANK_OUT = ("출금", "찾으신", "지급", "출금액")
-BANK_DESC = ("적요", "내용", "기재내용", "거래내용", "받는분", "보낸분", "메모", "거래점", "의뢰인", "수취인")
+BANK_PARTY = ("보낸분", "받는분", "의뢰인", "수취인", "거래처", "기재내용")
+BANK_MEMO = ("적요", "거래내용", "내용", "메모")
 
 
 def bank_header_row(df):
@@ -293,7 +307,7 @@ def parse_bank(frames):
         h = bank_header_row(df)
         if h is None:
             continue
-        header = [str(x).strip() if x is not None else "" for x in df.iloc[h]]
+        header = [str(x).strip() if x is not None and not (isinstance(x, float) and pd.isna(x)) else "" for x in df.iloc[h]]
 
         def find(keys, exclude=()):
             for i, c in enumerate(header):
@@ -303,7 +317,12 @@ def parse_bank(frames):
 
         di, ii, oi = find(BANK_DATE), find(BANK_IN), find(BANK_OUT)
         bi = find(("잔액",))
-        desc_ix = [i for i, c in enumerate(header) if any(k in c for k in BANK_DESC)]
+        pi = find(BANK_PARTY)
+        memo_ix = [i for i, c in enumerate(header) if i != pi and any(k in c for k in BANK_MEMO)]
+
+        def text(v):
+            return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip().strip("\u3000")
+
         for _, r in df.iloc[h + 1:].iterrows():
             vals = r.tolist()
             d = ymd(vals[di])
@@ -312,9 +331,12 @@ def parse_bank(frames):
             inc, outv = num(vals[ii]), num(vals[oi])
             if not inc and not outv:
                 continue
-            desc = " ".join(str(vals[i]).strip() for i in desc_ix
-                            if vals[i] is not None and not (isinstance(vals[i], float) and pd.isna(vals[i])))
-            out.append({"date": d, "desc": desc, "in": inc, "out": outv, "balance": num(vals[bi]) if bi is not None else 0})
+            tm = re.search(r"(\d{1,2}):(\d{2})", text(vals[di]))
+            party = text(vals[pi]) if pi is not None else ""
+            memo = " ".join(t for t in (text(vals[i]) for i in memo_ix) if t)
+            out.append({"date": d, "time": f"{int(tm.group(1)):02d}:{tm.group(2)}" if tm else "", "party": party,
+                        "memo": memo, "desc": " ".join(t for t in (party, memo) if t), "in": inc, "out": outv,
+                        "balance": num(vals[bi]) if bi is not None else 0})
     return out
 
 
@@ -339,10 +361,15 @@ def dedupe(rows, key):
 def build(folder, password):
     data = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "sources": [], "baemin": [], "coupang": [],
             "yogiyo": [], "ledgerSales": [], "purchases": [], "card": [], "bank": []}
-    files = sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in (".xlsx", ".xls"))
+    files = sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in (".xlsx", ".xls", ".csv"))
+    rules = Path(folder) / "rules.json"
+    if rules.exists():  # 가게별 분류 규칙 (사람 이름 등은 저장소에 올리지 않도록 데이터 폴더에 둔다)
+        data["rules"] = json.loads(rules.read_text(encoding="utf-8"))
+        print(f"  - rules.json: 분류 규칙 {sum(len(v) for v in data['rules'].values())}개")
     for p in files:
         try:
-            frames = sheets_as_frames(open_workbook_bytes(p, password))
+            raw = p.read_bytes() if p.suffix.lower() == ".csv" else open_workbook_bytes(p, password)
+            frames = sheets_as_frames(raw, p.suffix.lower())
         except Exception as e:  # noqa: BLE001
             print(f"  ! {p.name}: 읽기 실패 ({e})")
             continue
@@ -382,7 +409,8 @@ def build(folder, password):
         else:
             merged[k] = dict(c)
     data["card"] = sorted(merged.values(), key=lambda c: (c["date"], c["time"]))
-    data["bank"] = dedupe(data["bank"], lambda r: (r["date"], r["desc"], r["in"], r["out"], r["balance"]))
+    data["bank"] = sorted(dedupe(data["bank"], lambda r: (r["date"], r["time"], r["desc"], r["in"], r["out"], r["balance"])),
+                          key=lambda r: (r["date"], r["time"]))
     return data
 
 

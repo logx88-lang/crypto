@@ -199,23 +199,23 @@ const CATEGORIES = [
   { id: "공과금·통신", personal: false }, { id: "세무·방역·렌탈", personal: false }, { id: "수선·설비", personal: false },
   { id: "보험", personal: false }, { id: "차량유지", personal: false }, { id: "인건비", personal: false },
   { id: "세금·4대보험", personal: false }, { id: "식대·외식", personal: true }, { id: "생활·기타", personal: true },
-  { id: "기타", personal: false }, { id: "차량·자산 구입", personal: false, asset: true },
+  { id: "이자·금융비용", personal: false }, { id: "기타", personal: false }, { id: "차량·자산 구입", personal: false, asset: true },
 ];
 const RULES = [
-  [/효성더클래스|벤츠|모터스|자동차/, "차량·자산 구입"],
+  [/효성더클래|벤츠|모터스|자동차/, "차량·자산 구입"],
   [/우아한형제들|쿠팡 주식회사|쿠팡페이|위대한상상|요기요/, "배달앱 수수료"],
-  [/생각대로|다된다|바로고|부릉|퀵/, "배달대행"],
+  [/생각대로|로지올|다된다|바로고|부릉|퀵/, "배달대행"],
   [/경강/, "배송·물류"],
   [/제트유엔|이레푸드|엘엔티유통|탕화쿵푸 주식회사|한국탕화쿵푸|농산|승진유통|인왕유통|라임마트|공판장|가락마당|트레이더스|이마트|생선|정육|수산|식자재|하나로|진로마트|진로할인|형제닭집|두부마을|아원푸드|메이드 인|드림디포|신화유통|행복진로/, "식자재"],
   [/롯데칠성|주류|코카콜라/, "음료·주류"],
   [/다이소|쿠팡\(쿠페이\)|기물|종합주방/, "포장·소모품"],
-  [/나이스정보|헥토파이낸셜|이니시스|코페이|케이씨피|KCP|토스페이먼츠|인피니소프트/, "결제 수수료"],
+  [/나이스정보|헥토파이낸셜|이니시스|코페이|케이씨피|KCP|토스페이먼츠|인피니소프트|포스피아/, "결제 수수료"],
   [/한국전력|전기|코원에너지|도시가스|케이티|KT |KT통신|통신요금|휴대폰알림|수도/, "공과금·통신"],
   [/회계|세무|세스코|코웨이/, "세무·방역·렌탈"],
   [/냉동상사|식기세척기|설비|수리/, "수선·설비"],
   [/당근마켓|잡코리아|알바몬|광고/, "광고비"],
-  [/화재|해상|보험/, "보험"],
-  [/주유소|오일|충전소|주차/, "차량유지"],
+  [/화재|해상|현대해|[A-Z]{2,}손보|손해보험|보험/, "보험"],
+  [/주유소|오일|충전소|주차|하이패스|통행료/, "차량유지"],
   [/씨유|CU|GS25|세븐일레븐|이마트24|약국|아이스크림|투썸|스타벅스|이디야|메가|빽다방|길고양이|올리브영/, "생활·기타"],
 ];
 const ITEM_RULES = [[/Product Ads|광고/, "광고비"], [/임차료/, "임차료"], [/배송비/, "배송·물류"], [/배달가맹비/, "배달대행"], [/기장료|조정수수료/, "세무·방역·렌탈"]];
@@ -232,26 +232,70 @@ function classifyVendor(vendor, item, isCard) {
 function isPersonal(cat) { const v = state.personalCats[cat]; return v === undefined ? !!(CATEGORIES.find(c => c.id === cat) || {}).personal : v; }
 function isAsset(cat) { return !!(CATEGORIES.find(c => c.id === cat) || {}).asset; }
 
-const BANK_IN_RULES = [[/우아한|배민|배달의민족/, "배민 정산"], [/쿠팡/, "쿠팡이츠 정산"], [/요기요|위대한상상/, "요기요 정산"],
-  [/카드|BC|비씨|KB|국민|신한|삼성|현대|롯데|하나|NH|농협|우리|나이스|KICC|KIS|스마트로|토스/, "카드 매출 입금"]];
-const BANK_OUT_EXTRA = [[/급여|월급|알바|인건비|상여/, "인건비"], [/국민연금|건강보험|건보|고용보험|산재|국세|지방세|세무서|부가세|종합소득|원천세|위택스|홈택스/, "세금·4대보험"],
-  [/카드대금|카드결제|결제대금|카드$/, "카드대금"]];
+// 통장 전용 항목: 비용으로 치지 않는 돈의 이동
+const BANK_ONLY = { "카드대금": "카드 사용분은 카드·장부 매입으로 따로 잡힘", "부가세 납부": "부가세는 매출·매입 부가세로 따로 계산",
+  "사장 인출": "대표자 인출·노란우산공제", "대표자 세금·연금": "종합소득세·대표자 연금 (가게 비용 아님)", "가족·개인 자금": "개인 자금 빌림·갚음", "기타 출금": "" };
+const BANK_IN_RULES = [
+  [/^(KB|신한|하나|삼성|롯데카드|롯데|NH|농협|현대?|우리?|BC|비씨)\d{5,}$|^\d{6,}B$|가맹입금/, "카드 매출 입금"],
+  [/우아한|배민|배달의민족|^음식배달/, "배민 정산"], [/쿠팡/, "쿠팡이츠 정산"], [/요기요|위대한상상/, "요기요 정산"]];
+const BANK_OUT_EXTRA = [
+  [/^(신한|삼성|롯데|현대|KB국민|국민|하나|우리|NH|농협|BC|비씨)카드|카드대금|카드결제|결제대금/, "카드대금"],
+  [/대출이자|이자출금/, "이자·금융비용"],
+  [/^노란\d*$|노란우산/, "사장 인출"],
+  [/종소|종합소득/, "대표자 세금·연금"],
+  [/급여|월급|알바|인건비|상여/, "인건비"],
+  [/국민연금|건강보험|건보|고용보험|산재|국세|지방세|세무서|부가세|원천세|위택스|홈택스|특징|서울등록|연금/, "세금·4대보험"]];
+const BANK_WORDS = /^(타행|당행|이체|입금|출금|자동|대체|인터넷|모바일|스마트|폰뱅킹|펌뱅킹|창구|전자금융|오픈뱅킹|체크|송금|공동|가맹입금|대출이자|결산이자)$/;
+// 받는 분 칸이 따로 있으면 그 칸 전체가 한글 2~4자일 때만 사람으로 본다 (예: "유한회사 동남종합주"는 제외)
+const looksLikeName = (party, desc) => party ? /^[가-힣]{2,4}$/.test(party.replace(/\s/g, "")) && !BANK_WORDS.test(party.trim())
+  : desc.split(/\s+/).some(t => /^[가-힣]{2,4}$/.test(t) && !BANK_WORDS.test(t));
+let LEDGER_VENDORS = null;
+function ledgerMatch(row) {
+  if (!LEDGER_VENDORS) LEDGER_VENDORS = [...new Map(((DATA && DATA.purchases) || []).map(p => [normName(p.vendor), p])).entries()]
+    .filter(([k]) => k.length >= 3).map(([k, p]) => ({ k, vendor: p.vendor, item: p.item, isCard: /^5[78]\./.test(p.type) }));
+  const n = normName(bankKey(row)); if (n.length < 2) return null;
+  return LEDGER_VENDORS.find(v => n.includes(v.k.slice(0, 4)) || v.k.includes(n.slice(0, 4))) || null;
+}
+const NEVER_LEDGER = ["인건비", "세금·4대보험", "이자·금융비용"];
+const bankKey = row => row.party || row.desc;
+function userBankRule(row) {
+  for (const r of (DATA && DATA.rules && DATA.rules.bank) || []) {
+    try { if (new RegExp(r[0]).test(bankKey(row))) return r; } catch (e) {}
+  }
+  return null;
+}
 function classifyBank(row) {
-  const ov = state.bankOverrides[row.desc];
+  const ov = state.bankOverrides[bankKey(row)];
   if (ov) return ov;
-  if (row.in > 0) { for (const [re, c] of BANK_IN_RULES) if (re.test(row.desc)) return c; return "기타 입금"; }
-  for (const [re, c] of BANK_OUT_EXTRA) if (re.test(row.desc)) return c;
-  for (const [re, c] of RULES) if (re.test(row.desc)) return c;
-  const BANK_WORDS = /^(타행|당행|이체|입금|출금|자동|대체|인터넷|모바일|스마트|폰뱅킹|펌뱅킹|창구|전자금융|오픈뱅킹|체크|송금)$/;
-  if (row.desc.split(/\s+/).some(t => /^[가-힣]{2,4}$/.test(t) && !BANK_WORDS.test(t))) return "인건비";  // 사람 이름으로 보이는 이체는 인건비로 추정
+  const ur = userBankRule(row); if (ur) return ur[1];
+  const k = bankKey(row);
+  if (row.in > 0) {
+    for (const [re, c] of BANK_IN_RULES) if (re.test(k) || re.test(row.memo || "")) return c;
+    if (row.party && looksLikeName(row.party)) return "개인 자금 입금";
+    return "기타 입금";
+  }
+  for (const [re, c] of BANK_OUT_EXTRA) if (re.test(k) || re.test(row.memo || "")) {
+    // 1·4·7·10월 21~25일 국세 납부는 부가세 확정·예정 납부로 본다
+    if (c === "세금·4대보험" && /국세/.test(k)) { const [, mo, d] = row.date.split("-").map(Number); if ([1, 4, 7, 10].includes(mo) && d >= 21 && d <= 25) return "부가세 납부"; }
+    return c;
+  }
+  for (const [re, c] of RULES) if (re.test(k)) return c;
+  const lm = ledgerMatch(row); if (lm) return classifyVendor(lm.vendor, lm.item, lm.isCard);  // 장부 거래처와 같은 곳이면 그 항목
+  if (looksLikeName(row.party, row.desc)) return "인건비";  // 사람 이름으로 보이는 이체는 인건비로 추정
   return "기타 출금";
 }
-const BANK_IN_CATS = ["카드 매출 입금", "배민 정산", "쿠팡이츠 정산", "요기요 정산", "기타 입금"];
-const BANK_OUT_CATS = ["인건비", "세금·4대보험", "카드대금", ...CATEGORIES.map(c => c.id).filter(c => !["인건비", "세금·4대보험"].includes(c)), "기타 출금"];
-// 통장에서 가져와 비용에 더하는 항목 (재료 이체 등은 세금계산서로 이미 장부에 있어 중복이라 제외)
-const BANK_COST_CATS = ["인건비", "세금·4대보험"];
+const BANK_IN_CATS = ["카드 매출 입금", "배민 정산", "쿠팡이츠 정산", "요기요 정산", "개인 자금 입금", "기타 입금"];
+const BANK_OUT_CATS = ["인건비", "세금·4대보험", "이자·금융비용", ...CATEGORIES.map(c => c.id).filter(c => !["인건비", "세금·4대보험", "이자·금융비용"].includes(c)), ...Object.keys(BANK_ONLY)];
+// 세무사 장부의 거래처와 이름이 겹치는 출금은 이미 매입장에 있는 것으로 보고 비용에 다시 더하지 않는다
+const normName = s => String(s || "").replace(/\(주\)|（주）|㈜|주식회사|유한회사|\(유\)|[\s()（）_\-.]/g, "");
 
 /* ============================================================ 상태 */
+function mergeBank(a, b) {
+  const key = r => [r.date, r.time || "", r.desc, r.in, r.out, r.balance].join("|");
+  const seen = new Set(), out = [];
+  for (const r of a.concat(b)) { const k = key(r); if (!seen.has(k)) { seen.add(k); out.push(r); } }
+  return out.sort((x, y) => (x.date + (x.time || "")).localeCompare(y.date + (y.time || "")));
+}
 const state = {
   tab: store.get("tab", "summary"),
   period: "all",
@@ -259,7 +303,7 @@ const state = {
   overrides: store.get("overrides", {}),
   personalCats: store.get("personalCats", {}),
   bankOverrides: store.get("bankOverrides", {}),
-  bank: (DATA && DATA.bank && DATA.bank.length) ? DATA.bank : store.get("bank", []),
+  bank: mergeBank((DATA && DATA.bank) || [], store.get("bank", [])),
   purchaseFilter: { q: "", cat: "", src: "" },
   bankFilter: { q: "", cat: "" },
 };
@@ -345,9 +389,14 @@ function compute() {
 
   // --- 통장
   const bank = state.bank.map((b, i) => ({ ...b, id: "B" + i }));
-  for (const b of bank) if (b.out > 0) {
-    const cat = classifyBank(b);
-    if (BANK_COST_CATS.includes(cat)) purchases.push({ date: b.date, vendor: b.desc || "(적요 없음)", bizno: "", item: "통장 출금", supply: b.out, vat: 0, total: b.out, type: "통장", card: "", src: "통장", id: b.id, isCard: false, bankCat: cat });
+  for (const b of bank) {
+    b.cat = classifyBank(b);
+    const ur = userBankRule(b);
+    b.inLedger = b.out > 0 && !NEVER_LEDGER.includes(b.cat) && !(b.cat in BANK_ONLY) && ((ur && ur[2] === "장부") || !!ledgerMatch(b));
+    // 장부에 없는 사업 비용만 더한다 (카드대금·부가세·인출·개인 자금·자산 구입은 제외)
+    const isCost = b.out > 0 && !b.inLedger && !(b.cat in BANK_ONLY) && CATEGORIES.some(c => c.id === b.cat) && !isAsset(b.cat);
+    b.addedToCost = isCost;
+    if (isCost) purchases.push({ date: b.date, vendor: bankKey(b) || "(적요 없음)", bizno: "", item: "통장 출금" + (b.memo ? " · " + b.memo : ""), supply: b.out, vat: 0, total: b.out, type: "통장", card: "", src: "통장", id: b.id, isCard: false, bankCat: b.cat });
   }
   for (const p of purchases) p.cat = p.bankCat || classifyVendor(p.vendor, p.item, p.isCard);
 
@@ -734,65 +783,105 @@ function renderCard() {
 function renderBank() {
   const bank = M.bank;
   const drop = `<div class="drop" id="drop">
-      <h2>사업자 통장 거래내역 올리기</h2>
-      <div class="small muted">은행 앱·인터넷뱅킹에서 받은 엑셀(xlsx, xls) 또는 CSV 파일을 끌어다 놓거나 선택하세요.<br>거래일·적요·입금·출금·잔액 열을 자동으로 찾습니다. 파일은 이 브라우저 안에서만 읽고 저장합니다.</div>
+      <h2>${bank.length ? "통장 내역 추가로 올리기" : "사업자 통장 거래내역 올리기"}</h2>
+      <div class="small muted">은행 앱·인터넷뱅킹에서 받은 엑셀(xlsx, xls) 또는 CSV 파일을 끌어다 놓거나 선택하세요.<br>거래일·보낸분/받는분·적요·입금·출금·잔액 열을 자동으로 찾고, 이미 있는 거래는 건너뜁니다. 파일은 이 브라우저 안에서만 읽고 저장합니다.</div>
       <div class="toolbar" style="justify-content:center"><label class="btn primary" for="bank-file">파일 선택</label><input type="file" id="bank-file" accept=".xlsx,.xls,.csv" multiple hidden>
-      ${bank.length ? `<button class="btn" type="button" id="bank-clear">통장 내역 지우기</button>` : ""}</div>
+      ${bank.length && !DATA.bank.length ? `<button class="btn" type="button" id="bank-clear">올린 통장 내역 지우기</button>` : ""}</div>
       <div class="small" id="bank-msg"></div>
     </div>`;
   if (!bank.length) {
     main.innerHTML = `<section class="panel fade">${drop}
       ${box("통장 내역을 올리면 보이는 것", `<ul class="small" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
-        <li>입금: 카드사 매출 입금, 배민·쿠팡·요기요 정산 입금을 자동 구분</li>
-        <li>출금: 인건비(사람 이름 이체), 재료비 이체, 공과금, 임대료, 세금·4대보험, 카드대금</li>
-        <li>인건비와 세금·4대보험은 요약 탭의 이익 계산에 자동 반영 (재료 이체는 세금계산서와 중복이라 제외)</li>
-        <li>적요별로 항목을 직접 바꿀 수 있고, 바꾼 내용은 이 브라우저에 저장</li></ul>`)}
+        <li>입금: 카드사 매출 입금, 배민·쿠팡·요기요 정산 입금을 자동 구분하고 매출 자료와 맞춰 봄</li>
+        <li>출금: 인건비(사람 이름 이체), 재료비, 공과금, 임대료, 세금, 대출이자, 카드대금, 대표자 인출</li>
+        <li>세무사 장부에 없는 사업 비용(인건비 등)만 요약 탭 이익 계산에 더함</li>
+        <li>받는 사람별로 항목을 직접 바꿀 수 있고, 바꾼 내용은 이 브라우저에 저장</li></ul>`)}
     </section>`;
     bindBankUpload(); return;
   }
   const rows = bank.filter(b => inPeriod(b.date));
-  rows.forEach(b => b.cat = classifyBank(b));
   const ins = rows.filter(b => b.in > 0), outs = rows.filter(b => b.out > 0);
-  const ms = [...new Set(bank.map(b => b.date.slice(0, 7)))].sort().filter(m => periodMonths().includes(m) || state.period === "all");
+  const ms = periodMonths().filter(m => bank.some(b => b.date.startsWith(m)));
   const inCat = groupSum(ins, b => b.cat, b => b.in).sort((a, b) => b.value - a.value);
   const outCat = groupSum(outs, b => b.cat, b => b.out).sort((a, b) => b.value - a.value);
+  const status = b => b.addedToCost ? "added" : b.inLedger ? "ledger" : (b.cat in BANK_ONLY || isAsset(b.cat)) ? "none" : "none";
+  const outTag = c => { const xs = outs.filter(b => b.cat === c); const a = sum(xs.filter(b => b.addedToCost), b => b.out), l = sum(xs.filter(b => b.inLedger), b => b.out);
+    return a ? `비용 반영 ${man(a)}` + (l ? ` · 장부 중복 ${man(l)}` : "") : l ? "장부와 중복" : (BANK_ONLY[c] !== undefined ? "비용 아님" : isAsset(c) ? "자산 구입" : ""); };
+  const added = sum(outs.filter(b => b.addedToCost), b => b.out);
+  const labor = outs.filter(b => b.cat === "인건비");
+  const lastBal = bank[bank.length - 1].balance, minBal = Math.min(...bank.map(b => b.balance));
+
+  // 인건비 사람별 × 월
+  const people = groupSum(labor, b => bankKey(b), b => b.out).sort((a, b) => b.value - a.value);
+  // 입금 대사
+  const S = (cat, m) => sum(bank.filter(b => b.in > 0 && b.cat === cat && b.date.startsWith(m)), b => b.in);
+  const bmPaid = m => sum(DATA.baemin.filter(r => r.paid.startsWith(m)), r => r.payout);
+  const cpNet = m => M.cp.gross[m] - M.cpFee[m] - M.cpAds[m] - M.cpRebate[m];
+  const recon = [
+    { name: "카드 매출", cat: "카드 매출 입금", exp: m => M.hallCard[m], expName: "홈택스 카드매출", note: "카드사 수수료(약 1~2%)만큼 적고, 입금은 2~3일 늦습니다." },
+    { name: "배민", cat: "배민 정산", exp: bmPaid, expName: "정산서 입금액(입금일 기준)", note: "정산서의 입금 금액과 거의 같아야 합니다." },
+    { name: "쿠팡이츠", cat: "쿠팡이츠 정산", exp: cpNet, expName: "추정 정산액(매출−수수료)", note: "쿠팡은 주 단위로 모아서 입금합니다." },
+  ];
+  // 카드대금 vs 장부 카드 매입
+  const cardCos = ["신한", "롯데", "삼성", "현대", "KB", "국민", "하나", "우리", "NH", "BC"];
+  const cardPay = groupSum(outs.filter(b => b.cat === "카드대금"), b => (cardCos.find(c => bankKey(b).includes(c)) || "기타") + "카드", b => b.out);
+  const ledgerCard = co => sum(M.purchases.filter(p => inPeriod(p.date) && p.src === "장부" && p.card.includes(co.replace("카드", ""))), p => p.total);
   const f = state.bankFilter;
-  const list = rows.filter(b => (!f.cat || b.cat === f.cat) && (!f.q || b.desc.toLowerCase().includes(f.q.toLowerCase()))).sort((a, b) => b.date.localeCompare(a.date));
-  const labor = sum(outs.filter(b => b.cat === "인건비"), b => b.out);
+  const list = rows.filter(b => (!f.cat || b.cat === f.cat) && (!f.q || b.desc.toLowerCase().includes(f.q.toLowerCase()))).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  const pill = b => b.in > 0 ? "" : b.addedToCost ? `<span class="pill per" style="color:var(--ink)">비용 반영</span>` : b.inLedger ? `<span class="pill ok">장부에 있음</span>` : `<span class="pill biz">비용 아님</span>`;
+
   main.innerHTML = `<section class="panel fade">
     <div class="kpis">
-      ${kpi("입금 합계", eok(sum(ins, b => b.in)), `${ins.length}건`)}
-      ${kpi("출금 합계", eok(sum(outs, b => b.out)), `${outs.length}건`)}
-      ${kpi("인건비", eok(labor), `${outs.filter(b => b.cat === "인건비").length}건 · 이익 계산에 반영`)}
-      ${kpi("순 현금흐름", `<span class="${sum(ins, b => b.in) - sum(outs, b => b.out) < 0 ? "neg" : ""}">${eok(sum(ins, b => b.in) - sum(outs, b => b.out))}</span>`, "입금 − 출금")}
+      ${kpi("입금 합계", eok(sum(ins, b => b.in)), `${fmt(ins.length)}건`)}
+      ${kpi("출금 합계", eok(sum(outs, b => b.out)), `${fmt(outs.length)}건`)}
+      ${kpi("인건비", eok(sum(labor, b => b.out)), `${people.length}명 · ${labor.length}건`)}
+      ${kpi("비용에 더한 금액", eok(added), "장부에 없는 사업 비용")}
+      ${kpi("통장 잔액", `<span class="${lastBal < 0 ? "neg" : ""}">${eok(lastBal)}</span>`, lastBal < 0 || minBal < 0 ? `마이너스 통장 · 최저 ${eok(minBal)}` : `${bank[bank.length - 1].date} 기준`)}
     </div>
+    ${box("입금으로 매출 맞춰보기", table([{ t: "구분" }, ...ms.map(m => ({ t: mLabel(m), n: 1 })), { t: "합계", n: 1 }, { t: "차이율", n: 1 }],
+      recon.flatMap(r => { const a = ms.map(m => S(r.cat, m)), e = ms.map(m => r.exp(m)), ta = sum(a), te = sum(e);
+        return [`<tr>${td(`<b>${r.name}</b> 통장 입금`)}${a.map(v => td(fmt(v), 1)).join("")}${td(`<b>${fmt(ta)}</b>`, 1)}${td(`<span class="${Math.abs(ta / te - 1) > 0.05 ? "neg" : ""}">${te ? ((ta / te - 1) * 100).toFixed(1) + "%" : "–"}</span>`, 1)}</tr>`,
+          `<tr>${td(`<span class="small muted">${r.expName}</span>`)}${e.map(v => td(`<span class="muted">${fmt(v)}</span>`, 1)).join("")}${td(`<span class="muted">${fmt(te)}</span>`, 1)}${td(`<span class="small muted">${r.note}</span>`, 0, "wrap-t")}</tr>`]; })),
+      "", "통장에 실제로 들어온 돈과 매출 자료가 비슷하면 매출 자료를 믿어도 됩니다.")}
     <div class="grid g2">
       ${box("월별 입출금", `<div id="c-bank"></div>`)}
       ${box("입금 구성", hbars(inCat.map(c => ({ label: c.label, value: c.value })), "var(--s3)", sum(ins, b => b.in)))}
     </div>
-    ${box("출금 구성", hbars(outCat.map(c => ({ label: c.label, value: c.value })), "var(--s2)", sum(outs, b => b.out)), "", "카드대금은 카드 내역과 중복이라 비용에 넣지 않습니다.")}
-    ${box("거래 내역", `<div class="toolbar"><input type="search" id="b-q" placeholder="적요 검색" value="${esc(f.q)}">
+    ${box("출금 구성", `<div class="tbl-wrap">${table([{ t: "항목" }, { t: "금액", n: 1 }, { t: "비중", n: 1 }, { t: "건수", n: 1 }, { t: "이익 계산" }],
+      outCat.map(c => `<tr>${td(c.label)}${td(fmt(c.value), 1)}${td(pct(c.value, sum(outs, b => b.out)), 1)}${td(outs.filter(b => b.cat === c.label).length, 1)}${td(`<span class="small muted">${outTag(c.label)}${BANK_ONLY[c.label] ? " · " + BANK_ONLY[c.label] : ""}</span>`, 0, "wrap-t")}</tr>`))}</div>`,
+      "", "세무사 장부에 이미 있는 거래처(재료비·임대료 등)는 중복이라 비용에 다시 더하지 않습니다.")}
+    <div class="grid g2">
+      ${box("인건비 (받는 사람별)", people.length ? table([{ t: "받는 사람" }, ...ms.map(m => ({ t: mLabel(m), n: 1 })), { t: "합계", n: 1 }],
+        people.map(p => `<tr>${td(esc(p.label))}${ms.map(m => { const v = sum(labor.filter(b => bankKey(b) === p.label && b.date.startsWith(m)), b => b.out); return td(v ? man(v) : `<span class="muted">–</span>`, 1); }).join("")}${td(`<b>${fmt(p.value)}</b>`, 1)}</tr>`)
+        .concat(`<tr class="total">${td("합계")}${ms.map(m => td(man(sum(labor.filter(b => b.date.startsWith(m)), b => b.out)), 1)).join("")}${td(fmt(sum(labor, b => b.out)), 1)}</tr>`)) : `<div class="empty">인건비로 분류된 출금이 없습니다.</div>`,
+        "", "사람 이름으로 된 이체를 인건비로 추정했습니다. 아니면 아래 거래 내역에서 항목을 바꿔 주세요.")}
+      ${box("카드대금과 장부의 카드 매입", table([{ t: "카드" }, { t: "통장에서 낸 카드대금", n: 1 }, { t: "장부의 카드 매입", n: 1 }, { t: "장부에 없는 사용", n: 1 }],
+        cardPay.sort((a, b) => b.value - a.value).map(c => { const l = ledgerCard(c.label); return `<tr>${td(c.label)}${td(fmt(c.value), 1)}${td(fmt(l), 1)}${td(`<b>${fmt(Math.max(0, c.value - l))}</b>`, 1)}</tr>`; })),
+        "", "카드대금은 대개 전달 사용분이라 월이 한 달씩 어긋납니다. 차이가 큰 카드는 이용내역을 올리면 사업용·생활비를 나눠 볼 수 있어요.")}
+    </div>
+    ${box("거래 내역", `<div class="toolbar"><input type="search" id="b-q" placeholder="받는 분·적요 검색" value="${esc(f.q)}">
         <select id="b-cat"><option value="">모든 항목</option>${[...BANK_IN_CATS, ...BANK_OUT_CATS].map(c => `<option${c === f.cat ? " selected" : ""}>${c}</option>`).join("")}</select>
-        <span class="small muted">${fmt(list.length)}건</span></div>
-      ${table([{ t: "날짜" }, { t: "적요" }, { t: "입금", n: 1 }, { t: "출금", n: 1 }, { t: "잔액", n: 1 }, { t: "항목 (같은 적요 전체 적용)" }],
-        list.slice(0, 500).map(b => `<tr>${td(b.date)}${td(esc(b.desc), 0, "wrap-t")}${td(b.in ? fmt(b.in) : "", 1)}${td(b.out ? fmt(b.out) : "", 1)}${td(fmt(b.balance), 1)}${td(`<select data-desc="${esc(b.desc)}" aria-label="항목">${(b.in > 0 ? BANK_IN_CATS : BANK_OUT_CATS).map(c => `<option${c === b.cat ? " selected" : ""}>${c}</option>`).join("")}</select>`)}</tr>`), { scroll: true })}`)}
+        <span class="small muted">${fmt(list.length)}건${list.length > 500 ? " (최근 500건 표시)" : ""}</span></div>
+      ${table([{ t: "일시" }, { t: "보낸 분 / 받는 분" }, { t: "적요" }, { t: "입금", n: 1 }, { t: "출금", n: 1 }, { t: "잔액", n: 1 }, { t: "항목 (같은 사람 전체 적용)" }, { t: "" }],
+        list.slice(0, 500).map(b => `<tr>${td(b.date + (b.time ? ` <span class="muted small">${b.time}</span>` : ""))}${td(esc(b.party || b.desc))}${td(`<span class="small muted">${esc(b.party ? b.memo : "")}</span>`)}${td(b.in ? fmt(b.in) : "", 1)}${td(b.out ? fmt(b.out) : "", 1)}${td(signed(b.balance), 1)}${td(`<select data-key="${esc(bankKey(b))}" aria-label="항목">${(b.in > 0 ? BANK_IN_CATS : BANK_OUT_CATS).map(c => `<option${c === b.cat ? " selected" : ""}>${c}</option>`).join("")}</select>`)}${td(pill(b))}</tr>`), { scroll: true })}`)}
     ${drop}
   </section>`;
-  stackedBars(document.getElementById("c-bank"), ms.map(mLabel), [
-    { name: "입금", color: "var(--s3)", values: ms.map(m => sum(ins.filter(b => b.date.startsWith(m)), b => b.in)) }], { label: "월별 입금", h: 180 });
   const cb = document.getElementById("c-bank");
-  const outDiv = document.createElement("div"); cb.appendChild(outDiv);
-  stackedBars(outDiv, ms.map(mLabel), [{ name: "출금", color: "var(--s2)", values: ms.map(m => sum(outs.filter(b => b.date.startsWith(m)), b => b.out)) }], { label: "월별 출금", h: 180 });
-  cb.insertAdjacentHTML("afterbegin", `<div class="legend"><span><i style="background:var(--s3)"></i>입금 (위)</span><span><i style="background:var(--s2)"></i>출금 (아래)</span></div>`);
+  cb.innerHTML = `<div class="legend"><span><i style="background:var(--s3)"></i>입금 (위)</span><span><i style="background:var(--s2)"></i>출금 (아래)</span></div><div id="c-bank-in"></div><div id="c-bank-out"></div>`;
+  const inV = ms.map(m => sum(ins.filter(b => b.date.startsWith(m)), b => b.in)), outV = ms.map(m => sum(outs.filter(b => b.date.startsWith(m)), b => b.out));
+  const mx = niceMax(Math.max(...inV, ...outV, 1));
+  stackedBars(document.getElementById("c-bank-in"), ms.map(mLabel), [{ name: "입금", color: "var(--s3)", values: inV }], { label: "월별 입금", h: 170, max: mx, topLabels: true });
+  stackedBars(document.getElementById("c-bank-out"), ms.map(mLabel), [{ name: "출금", color: "var(--s2)", values: outV }], { label: "월별 출금", h: 170, max: mx, topLabels: true });
   const q = document.getElementById("b-q");
   q.addEventListener("input", () => { f.q = q.value; debounce(() => { renderBank(); const n = document.getElementById("b-q"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); });
   document.getElementById("b-cat").addEventListener("change", e => { f.cat = e.target.value; renderBank(); });
-  main.querySelectorAll("select[data-desc]").forEach(s => s.addEventListener("change", () => { state.bankOverrides[s.dataset.desc] = s.value; store.set("bankOverrides", state.bankOverrides); recompute(); }));
+  main.querySelectorAll("select[data-key]").forEach(s => s.addEventListener("change", () => { state.bankOverrides[s.dataset.key] = s.value; store.set("bankOverrides", state.bankOverrides); recompute(); }));
   bindBankUpload();
 }
 
 // --- 통장 파일 읽기 (SheetJS)
-const B_DATE = ["거래일시", "거래일자", "거래일", "일자", "날짜"], B_IN = ["입금", "맡기신"], B_OUT = ["출금", "찾으신", "지급"], B_DESC = ["적요", "내용", "기재내용", "거래내용", "받는분", "보낸분", "메모", "의뢰인", "수취인"];
+const B_DATE = ["거래일시", "거래일자", "거래일", "일자", "날짜"], B_IN = ["입금", "맡기신"], B_OUT = ["출금", "찾으신", "지급"];
+const B_PARTY = ["보낸분", "받는분", "의뢰인", "수취인", "거래처", "기재내용"], B_MEMO = ["적요", "거래내용", "내용", "메모"];
 function toNum(v) { if (typeof v === "number") return Math.round(v); const s = String(v ?? "").replace(/[,원\s]/g, ""); const n = parseFloat(s); return isFinite(n) ? Math.round(n) : 0; }
 function toYmd(v) {
   if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -806,12 +895,16 @@ function parseBankSheet(rows) {
   const head = rows[h].map(x => String(x ?? "").trim());
   const find = keys => head.findIndex(c => keys.some(k => c.includes(k)));
   const di = find(B_DATE), ii = find(B_IN), oi = find(B_OUT), bi = find(["잔액"]);
-  const descIx = head.map((c, i) => B_DESC.some(k => c.includes(k)) ? i : -1).filter(i => i >= 0);
+  const pi = find(B_PARTY);
+  const memoIx = head.map((c, i) => i !== pi && B_MEMO.some(k => c.includes(k)) ? i : -1).filter(i => i >= 0);
+  const txt = v => String(v ?? "").replace(/^[\s\u3000]+|[\s\u3000]+$/g, "");
   const out = [];
   for (const r of rows.slice(h + 1)) {
     const d = toYmd(r[di]); if (!d) continue;
     const inc = toNum(r[ii]), o = toNum(r[oi]); if (!inc && !o) continue;
-    out.push({ date: d, desc: descIx.map(i => String(r[i] ?? "").trim()).filter(Boolean).join(" "), in: inc, out: o, balance: bi >= 0 ? toNum(r[bi]) : 0 });
+    const tm = (r[di] instanceof Date) ? r[di].toTimeString().slice(0, 5) : ((txt(r[di]).match(/(\d{1,2}):(\d{2})/) || [])[0] || "");
+    const party = pi >= 0 ? txt(r[pi]) : "", memo = memoIx.map(i => txt(r[i])).filter(Boolean).join(" ");
+    out.push({ date: d, time: tm.length === 4 ? "0" + tm : tm, party, memo, desc: [party, memo].filter(Boolean).join(" "), in: inc, out: o, balance: bi >= 0 ? toNum(r[bi]) : 0 });
   }
   return out;
 }
@@ -822,15 +915,20 @@ function bindBankUpload() {
     let added = [];
     for (const file of files) {
       try {
-        const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+        const buf = await file.arrayBuffer();
+        let wb;
+        if (/\.csv$/i.test(file.name)) {  // 은행 CSV는 대개 EUC-KR
+          let text; try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch (e) { text = new TextDecoder("euc-kr").decode(buf); }
+          wb = XLSX.read(text.replace(/^\uFEFF/, ""), { type: "string", raw: true });
+        } else wb = XLSX.read(buf, { type: "array", cellDates: true });
         for (const name of wb.SheetNames) added = added.concat(parseBankSheet(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: "" })));
       } catch (e) { msg.textContent = `${file.name}: 읽지 못했습니다. 암호가 걸린 파일이면 암호를 풀고 다시 저장해서 올려 주세요.`; return; }
     }
     if (!added.length) { msg.textContent = "거래일·입금·출금·잔액 열을 찾지 못했습니다. 은행에서 받은 원본 엑셀인지 확인해 주세요."; return; }
-    const key = b => [b.date, b.desc, b.in, b.out, b.balance].join("|");
+    const key = b => [b.date, b.time || "", b.desc, b.in, b.out, b.balance].join("|");
     const seen = new Set(state.bank.map(key));
     const fresh = added.filter(b => !seen.has(key(b)) && seen.add(key(b)));
-    state.bank = state.bank.concat(fresh).sort((a, b) => a.date.localeCompare(b.date));
+    state.bank = state.bank.concat(fresh).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")));
     store.set("bank", state.bank);
     recompute();
     const m2 = document.getElementById("bank-msg"); if (m2) m2.textContent = `${fresh.length}건을 추가했습니다${added.length - fresh.length ? ` (중복 ${added.length - fresh.length}건 제외)` : ""}.`;
