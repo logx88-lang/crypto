@@ -158,10 +158,6 @@ details summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var
 
   <div class="controls">
     <div><span class="ctl-label">기간</span><span class="seg" id="period-seg"></span></div>
-    <div><span class="ctl-label">매출 기준</span><span class="seg" id="basis-seg">
-      <button type="button" data-basis="platform" aria-pressed="true">플랫폼 정산서</button>
-      <button type="button" data-basis="ledger" aria-pressed="false">세무사 장부</button>
-    </span></div>
   </div>
 
   <nav class="tabs" role="tablist" id="tabs">
@@ -306,7 +302,6 @@ function mergeBank(a, b) {
 const state = {
   tab: store.get("tab", "summary"),
   period: "all",
-  basis: store.get("basis", "platform"),
   overrides: store.get("overrides", {}),
   personalCats: store.get("personalCats", {}),
   bankOverrides: store.get("bankOverrides", {}),
@@ -422,12 +417,8 @@ function compute() {
 // 기준에 따른 월별 채널 매출
 function salesByChannel() {
   const { months, hallCard, cashRcpt, cp, bmGross, yg, ledgerBaemin, ledgerYogiyo } = M;
-  const platGross = sum(months, m => bmGross[m] + yg.gross[m]);
-  const excess = Math.max(0, platGross - ledgerBaemin - ledgerYogiyo);
   const rows = months.map(m => {
-    let hallCash = cashRcpt[m] - cp.cash[m];
-    if (state.basis === "ledger" && platGross) hallCash -= excess * (bmGross[m] + yg.gross[m]) / platGross;
-    hallCash = Math.max(0, hallCash);
+    const hallCash = Math.max(0, cashRcpt[m] - cp.cash[m]);
     return { m, hallCard: hallCard[m], hallCash, baemin: bmGross[m], coupang: cp.gross[m], yogiyo: yg.gross[m] };
   });
   rows.forEach(r => r.total = r.hallCard + r.hallCash + r.baemin + r.coupang + r.yogiyo);
@@ -577,14 +568,14 @@ function renderSummary() {
   const hasLabor = biz.some(p => p.cat === "인건비");
   const severance = sum(biz.filter(p => p.cat === "퇴직금"), p => p.total);
   const profit = sales - cost;
-  const vatOut = state.period === "all" ? M.ledgerSalesVat : null;
+  const vatOut = Math.round(sales / 11);  // 매출은 부가세 포함 금액
   const vatIn = sum(M.purchases.filter(p => inPeriod(p.date) && p.src === "장부" && /^(51|57|61)\./.test(p.type)), p => p.vat);
 
   const notes = [];
   if (!M.bank.length) notes.push(`<div class="note"><span class="pill warn">확인 필요</span><span><b>통장 내역이 아직 없습니다.</b> 인건비·4대보험 같은 계좌이체 비용이 이익 계산에 빠져 있어요. <a href="#" data-goto="bank">통장 탭</a>에서 엑셀을 올리면 바로 반영됩니다.</span></div>`);
   if (severance) notes.push(`<div class="note info"><span class="pill biz">참고</span><span>퇴직금 ${man(severance)}이 비용에 들어 있습니다. 한 번만 나가는 돈이라, 평소 이익은 퇴직금을 뺀 ${eok(profit + severance)}(이익률 ${pct(profit + severance, sales)})로 보시면 됩니다.</span></div>`);
   const platGross = sum(M.months, m => M.bmGross[m]);
-  if (Math.abs(platGross - M.ledgerBaemin) > 1e6) notes.push(`<div class="note"><span class="pill warn">확인 필요</span><span><b>배민 매출이 장부보다 ${eok(platGross - M.ledgerBaemin)} 많습니다.</b> 정산서 주문금액은 ${eok(platGross)}인데 장부의 배민 매출은 ${eok(M.ledgerBaemin)}로, 배민이 실제 입금한 ${eok(sum(M.months, m => M.bm.payout[m]))}보다도 적습니다. 배민 현금성 결제가 홈택스 현금영수증에 들어 있다고 봐도 차액을 다 설명하지 못해(‘세무사 장부’ 기준을 누르면 홀 현금영수증이 거의 0이 됩니다) 장부에서 배민 매출 일부가 빠졌을 수 있습니다. 세무사에게 배민 부가세 신고자료 반영 여부를 확인해 보세요.</span></div>`);
+  if (Math.abs(platGross - M.ledgerBaemin) > 1e6) notes.push(`<div class="note"><span class="pill warn">세무사 확인</span><span><b>세무사 장부에 배민 매출이 ${eok(platGross - M.ledgerBaemin)} 적게 잡혀 있습니다.</b> 배민 정산서 주문금액은 ${eok(platGross)}(통장 입금액과도 일치)인데 장부에는 ${eok(M.ledgerBaemin)}만 있어요. 부가세·종합소득세 신고 매출이 줄어 있을 수 있으니 배민 부가세 신고자료를 세무사에게 다시 보내 확인하세요. 대시보드는 정산서 금액을 씁니다.</span></div>`);
   if (M.bmMaxDate && M.bmMaxDate < M.months[M.months.length - 1] + "-28") notes.push(`<div class="note info"><span class="pill biz">참고</span><span>배민 정산서는 주문일 ${M.bmMaxDate}까지 들어 있어 마지막 달 배민 매출은 며칠 덜 잡혀 있습니다.</span></div>`);
 
   const ms = periodMonths();
@@ -598,7 +589,7 @@ function renderSummary() {
       ${kpi("사업 비용", eok(cost), `생활비 ${man(personal)}${asset ? ` · 자산구입 ${eok(asset)} 별도` : ""} 제외`)}
       ${kpi(hasLabor ? "추정 이익" : "추정 이익 (인건비 전)", `<span class="${profit < 0 ? "neg" : ""}">${eok(profit)}</span>`, `이익률 ${pct(profit, sales)}` + (severance ? ` · 퇴직금 빼면 ${eok(profit + severance)}` : ""))}
       ${kpi("배달앱 비중", pct(deliv, sales), `배달 매출 ${eok(deliv)}`)}
-      ${vatOut != null ? kpi("부가세 (참고)", eok(vatOut - vatIn), `매출세액 ${man(vatOut)} − 매입세액 ${man(vatIn)}`) : ""}
+      ${kpi("부가세 (참고)", eok(vatOut - vatIn), `매출세액 ${man(vatOut)} − 매입세액 ${man(vatIn)}`)}
     </div>
     ${notes.length ? `<div class="notes">${notes.join("")}</div>` : ""}
     <div class="grid g2">
@@ -651,7 +642,7 @@ function renderSales() {
       rows.map(r => { const prev = all[all.findIndex(x => x.m === r.m) - 1]; const ch = prev ? (r.total / prev.total - 1) * 100 : null;
         return `<tr>${td(mLabel(r.m))}${CHANNELS.map(c => td(fmt(r[c.k]), 1)).join("")}${td(`<b>${fmt(r.total)}</b>`, 1)}${td(ch == null ? "–" : `<span class="${ch < 0 ? "neg" : "pos"}">${ch > 0 ? "+" : ""}${ch.toFixed(1)}%</span>`, 1)}</tr>`; })
       .concat(`<tr class="total">${td("합계")}${CHANNELS.map(c => td(fmt(tot[c.k]), 1)).join("")}${td(fmt(tot.total), 1)}${td("", 1)}</tr>`)),
-      "", state.basis === "ledger" ? "세무사 장부 기준: 장부 매출 합계에 맞추기 위해 배민·요기요 정산서 금액 중 장부를 넘는 부분을 홀 현금영수증에서 뺐습니다." : "플랫폼 정산서 기준: 배민·쿠팡·요기요는 각 정산 원자료, 홀은 홈택스 카드·현금영수증 매출(쿠팡 현금결제분 제외)입니다.")}
+      "", "배민·쿠팡·요기요는 각 정산 원자료, 홀은 홈택스 카드·현금영수증 매출(쿠팡 현금결제분 제외)입니다.")}
     <div class="grid g2">
       ${box("채널 구성 추이", `<div id="c-mix"></div>`, "", "월별 매출 비중")}
       ${box("쿠팡이츠 주문 패턴", `<div id="c-heat"></div><div class="small muted">주문 ${fmt(cpOrders)}건 · 객단가 ${fmt(cpGross / Math.max(cpOrders, 1))}원 · 가장 바쁜 요일 ${days[bestDay]}요일 · 가장 바쁜 시간 ${bestHour}시대</div>`, "", "요일 × 시간대 주문 수 (쿠팡이츠 주문 단위 자료)")}
@@ -967,13 +958,13 @@ function renderData() {
       `<tr>${td("배달의민족")}${td(fmt(M.ledgerBaemin), 1)}${td(fmt(sum(ms, m => M.bmGross[m])), 1)}${td(signed(sum(ms, m => M.bmGross[m]) - M.ledgerBaemin), 1)}${td(`<span class="small muted">정산서 주문금액+배달팁 (주문일 ${DATA.baemin.length ? DATA.baemin.map(r => r.date).filter(Boolean).sort()[0] : ""}~${M.bmMaxDate}, 해당 월만)</span>`, 0, "wrap-t")}</tr>`,
       `<tr>${td("쿠팡이츠 (카드+기타)")}${td(fmt(M.ledgerCoupang), 1)}${td(fmt(sum(ms, m => M.cp.card[m] + M.cp.etc[m])), 1)}${td(signed(sum(ms, m => M.cp.card[m] + M.cp.etc[m]) - M.ledgerCoupang), 1)}${td(`<span class="small muted">쿠팡 현금결제분 ${fmt(sum(ms, m => M.cp.cash[m]))}원은 홈택스 현금영수증 매출에 들어 있음</span>`, 0, "wrap-t")}</tr>`,
       `<tr>${td("요기요")}${td(fmt(M.ledgerYogiyo), 1)}${td(fmt(sum(ms, m => M.yg.gross[m])), 1)}${td(signed(sum(ms, m => M.yg.gross[m]) - M.ledgerYogiyo), 1)}${td(`<span class="small muted">주문내역 주문금액+배달료</span>`, 0, "wrap-t")}</tr>`,
-      `<tr class="total">${td("매출 합계")}${td(fmt(M.ledgerSalesTotal), 1)}${td(fmt(platTotal), 1)}${td(signed(platTotal - M.ledgerSalesTotal), 1)}${td(`<span class="small muted">현재 선택: ${state.basis === "ledger" ? "세무사 장부" : "플랫폼 정산서"} 기준</span>`)}</tr>`]))}
+      `<tr class="total">${td("매출 합계")}${td(fmt(M.ledgerSalesTotal), 1)}${td(fmt(platTotal), 1)}${td(signed(platTotal - M.ledgerSalesTotal), 1)}${td(`<span class="small muted">대시보드는 원자료 기준</span>`)}</tr>`]))}
     ${box("읽어 들인 파일", table([{ t: "파일" }, { t: "종류" }, { t: "건수", n: 1 }], DATA.sources.map(s => `<tr>${td(`<span class="small">${esc(s.file)}</span>`, 0, "wrap-t")}${td(s.label)}${td(fmt(s.rows), 1)}</tr>`)
       .concat(state.bank.length && !DATA.bank.length ? [`<tr>${td("브라우저에서 올린 통장 내역")}${td("사업자 통장 거래내역")}${td(fmt(state.bank.length), 1)}</tr>`] : [])),
       "", `만든 시각 ${DATA.generated}`)}
     ${box("계산 방법", `<ul class="small" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
       <li>모든 금액은 부가세 포함 금액입니다.</li>
-      <li>홀 카드 = 세무사 장부의 홈택스 카드매출. 홀 현금영수증 = 홈택스 현금영수증 매출 − 쿠팡이츠 현금결제분${state.basis === "ledger" ? " − 배민·요기요 정산서가 장부보다 많은 금액" : ""}.</li>
+      <li>홀 카드 = 세무사 장부의 홈택스 카드매출. 홀 현금영수증 = 홈택스 현금영수증 매출 − 쿠팡이츠 현금결제분.</li>
       <li>배민 = 정산명세서 상세의 바로결제·만나서결제 주문금액 + 배달팁 (주문일 기준 월). 쿠팡이츠 = 부가세 신고자료의 판매 − 환불. 요기요 = 주문내역의 주문금액 + 배달료 (환불 제외).</li>
       <li>비용 = 세무사 매입장 + 장부에 없는 카드 사용분 + 통장의 인건비·세금·4대보험. 생활비로 분류한 항목과 차량 등 자산 구입은 빠집니다.</li>
       <li>쿠팡이츠 수수료는 정산 상세가 없어 세금계산서(중개 수수료, 광고, 영중소 환급)로 계산합니다.</li></ul>`)}
@@ -992,7 +983,6 @@ const RENDER = { summary: renderSummary, sales: renderSales, delivery: renderDel
 function render() {
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === state.tab));
   document.querySelectorAll("#period-seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.p === state.period));
-  document.querySelectorAll("#basis-seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.basis === state.basis));
   hideTip();
   RENDER[state.tab]();
   main.querySelectorAll("[data-goto]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); state.tab = a.dataset.goto; store.set("tab", state.tab); render(); }));
@@ -1010,7 +1000,6 @@ function init() {
   const seg = document.getElementById("period-seg");
   seg.innerHTML = `<button type="button" data-p="all">전체</button>` + M.months.map(m => `<button type="button" data-p="${m}">${mLabel(m)}</button>`).join("");
   seg.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.period = b.dataset.p; render(); });
-  document.getElementById("basis-seg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.basis = b.dataset.basis; store.set("basis", state.basis); render(); });
   document.getElementById("tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.tab = b.dataset.tab; store.set("tab", state.tab); render(); });
   if (!RENDER[state.tab]) state.tab = "summary";
   render();
